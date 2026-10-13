@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # 主 API 服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lumilearn-api
+    ports:
+      - "${API_PORT:-5010}:5010"
+    environment:
+      - FLASK_ENV=production
+      - OLLAMA_HOST=http://ollama:11434
+      # 生产环境请在 .env 中配置强随机密钥（python -c "import secrets;print(secrets.token_hex(32))"）
+      - SECRET_KEY=${SECRET_KEY:-}
+      - STUDENT_SECRET_KEY=${STUDENT_SECRET_KEY:-}
+      - TEACHER_SECRET_KEY=${TEACHER_SECRET_KEY:-}
+      - DATABASE_URL=sqlite:////data/lumilearn.db
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # 教师端
+  teacher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lumilearn-teacher
+    ports:
+      - "${TEACHER_PORT:-5001}:5001"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - SERVICE_PORT=5001
+      - SERVICE_NAME=teacher
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Admin 管理面板
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lumilearn-admin
+    ports:
+      - "${LUMILEARN_PORT:-18080}:18080"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - SERVICE_PORT=18080
+      - SERVICE_NAME=admin
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # 学习分析仪表盘
+  analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lumilearn-analytics
+    ports:
+      - "${ANALYTICS_PORT:-18090}:18090"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - SERVICE_PORT=18090
+      - SERVICE_NAME=analytics
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Ollama 本地模型推理
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lumilearn-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Nginx 反向代理（可选）
+  nginx:
+    image: nginx:alpine
+    container_name: lumilearn-nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - teacher
+      - admin
+    restart: unless-stopped
+
+volumes:
+  data:
+  ollama_data:

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LumiLearn · 学习档案</title>
+<link rel="stylesheet" href="/static/ui/lumi.css">
+<link rel="stylesheet" href="/static/ui/icons.css">
+<style>
+  .profile-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .avatar-lg{width:56px;height:56px;border-radius:16px;background:var(--primary);color:var(--color-primary-foreground);
+    display:grid;place-items:center;font-size:22px;font-weight:700;flex:none}
+  .tabs{display:flex;gap:4px;margin:18px 0 16px;border-bottom:1px solid var(--color-border);flex-wrap:wrap}
+  .tab{padding:9px 16px;font-size:13px;color:var(--color-text-muted);border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none}
+  .tab.active{color:var(--color-text);border-bottom-color:var(--primary);font-weight:600}
+  .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .bars{display:flex;flex-direction:column;gap:12px}
+  .bar-row .bar-top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+  .graph-cat{margin-bottom:14px}
+  .graph-cat h4{font-size:13px;font-weight:600;margin-bottom:8px}
+  .node-chips{display:flex;gap:8px;flex-wrap:wrap}
+  .node-chip{border:1px solid var(--color-border);border-radius:99px;padding:5px 12px;font-size:12px;background:var(--card)}
+  .node-chip .d{color:var(--color-text-muted);font-size:11px}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .filters select{padding:7px 12px;border:1px solid var(--color-border);border-radius:8px;font-size:13px;background:var(--background)}
+  .empty{text-align:center;color:var(--color-text-muted);font-size:13px;padding:26px 0}
+  .stat-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--color-border);font-size:13px}
+  .stat-row:last-child{border-bottom:none}
+  @media (max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="app-sidebar" id="appSidebar"></aside>
+  <main class="app-main">
+    <div class="card profile-head">
+      <span class="avatar-lg" id="pAvatar">S</span>
+      <div style="flex:1;min-width:0">
+        <h2 style="font-size:19px;font-weight:700" id="pName">—</h2>
+        <div class="muted small" id="pMeta">—</div>
+      </div>
+      <div class="flex" style="gap:22px">
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700" id="pH1">—</div><div class="muted small">学习报告</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700" id="pH2">—</div><div class="muted small">平均掌握度</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700" id="pH3">—</div><div class="muted small">已掌握知识点</div></div>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview">概览</button>
+      <button class="tab" data-tab="history">学习历史</button>
+      <button class="tab" data-tab="wrong">错题本</button>
+      <button class="tab" data-tab="graph">知识图谱</button>
+    </div>
+
+    <section id="panel-overview">
+      <div class="stats-grid">
+        <div class="metric-card"><div class="eyebrow">已掌握</div><div class="metric-value" id="oMastered">—</div></div>
+        <div class="metric-card"><div class="eyebrow">学习中</div><div class="metric-value" id="oLearning">—</div></div>
+        <div class="metric-card"><div class="eyebrow">未开始</div><div class="metric-value" id="oNotStarted">—</div></div>
+        <div class="metric-card"><div class="eyebrow">整体准确率</div><div class="metric-value" id="oAcc">—</div></div>
+      </div>
+      <div class="grid cols-2 mt-2">
+        <div class="card">
+          <div class="between" style="margin-bottom:12px"><h3 style="font-size:15px;font-weight:600">薄弱知识点分布</h3><span class="muted small">按出现次数</span></div>
+          <div class="bars" id="weakBars"><div class="empty">暂无数据</div></div>
+        </div>
+        <div class="card">
+          <div class="between" style="margin-bottom:12px"><h3 style="font-size:15px;font-weight:600">学习趋势</h3><span class="muted small" id="trendHint">—</span></div>
+          <div id="trendChart"><div class="empty">暂无趋势数据</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-history" class="hidden">
+      <div class="card">
+        <div class="filters">
+          <select id="filterSubject">
+            <option value="全部">全部学科</option>
+            <option>数学</option><option>物理</option><option>化学</option><option>生物</option>
+          </select>
+          <button class="btn sm" id="refreshHistory">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>主题</th><th>学科</th><th>日期</th><th>掌握度</th></tr></thead>
+            <tbody id="historyBody"><tr><td colspan="4" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-wrong" class="hidden">
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="between" style="margin-bottom:12px"><h3 style="font-size:15px;font-weight:600">错题知识点统计</h3></div>
+          <div id="wrongStats"><div class="empty">暂无数据</div></div>
+        </div>
+        <div class="card">
+          <div class="between" style="margin-bottom:12px"><h3 style="font-size:15px;font-weight:600">近期薄弱项</h3></div>
+          <div class="list" id="wrongList"><div class="empty">暂无数据</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-graph" class="hidden">
+      <div class="card">
+        <div class="between" style="margin-bottom:12px"><h3 style="font-size:15px;font-weight:600">知识点图谱</h3><span class="muted small" id="graphHint">—</span></div>
+        <div id="graphBody"><div class="empty">加载中…</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="mock.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+<script>
+(function () {
+  var esc = LL.esc, pct = LL.pct;
+  var uid = null, profile = {}, status = {}, graph = { nodes: [] };
+  var CAT = { geometry: "几何", algebra: "代数", physics: "物理", statistics: "统计", functions: "函数" };
+
+  function lineChart(points) {
+    if (!points || points.length < 2) return '<div class="empty">暂无趋势数据</div>';
+    var w = 480, h = 150, pad = 24;
+    var max = Math.max.apply(null, points.map(function (p) { return p.score; }).concat([100]));
+    var min = Math.min.apply(null, points.map(function (p) { return p.score; }).concat([0]));
+    var span = Math.max(1, max - min);
+    function X(i) { return pad + i * (w - pad * 2) / Math.max(1, points.length - 1); }
+    function Y(v) { return h - pad - (v - min) / span * (h - pad * 2); }
+    var d = points.map(function (p, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(p.score).toFixed(1); }).join(" ");
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="150"><line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" stroke="var(--color-border)"/>' +
+      '<path d="' + d + '" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round"/></svg>';
+  }
+
+  function renderOverview() {
+    var u = profile.user || {};
+    document.getElementById("pAvatar").textContent = String(u.name || "S").slice(0, 1).toUpperCase();
+    document.getElementById("pName").textContent = u.name || "同学";
+    document.getElementById("pMeta").textContent = (u.role === "teacher" ? "教师" : "学生") + (uid ? " · ID " + uid : "");
+    document.getElementById("pH1").textContent = profile.total_reports != null ? profile.total_reports : "—";
+    document.getElementById("pH2").textContent = pct(profile.avg_mastery);
+    document.getElementById("pH3").textContent = status.mastered_nodes != null ? status.mastered_nodes : "—";
+
+    document.getElementById("oMastered").textContent = status.mastered_nodes != null ? status.mastered_nodes : "—";
+    document.getElementById("oLearning").textContent = status.learning_nodes != null ? status.learning_nodes : "—";
+    document.getElementById("oNotStarted").textContent = status.not_started != null ? status.not_started : "—";
+    document.getElementById("oAcc").textContent = pct(status.overall_accuracy, 0);
+
+    var weak = profile.weak_points || [];
+    document.getElementById("weakBars").innerHTML = weak.length ? weak.map(function (w) {
+      var max = weak[0].count || 1;
+      return '<div class="bar-row"><div class="bar-top"><span>' + esc(w.text) + '</span><span class="muted">' + w.count + ' 次</span></div>' +
+        '<div class="progress"><i style="width:' + Math.round((w.count / max) * 100) + '%"></i></div></div>';
+    }).join("") : '<div class="empty">暂无薄弱点</div>';
+
+    var trend = profile.trend || [];
+    document.getElementById("trendChart").innerHTML = lineChart(trend);
+    document.getElementById("trendHint").textContent = trend.length ? trend.length + " 次记录" : "—";
+  }
+
+  function renderHistory(list) {
+    document.getElementById("historyBody").innerHTML = list.length ? list.map(function (h) {
+      return '<tr><td><a href="report.html?id=' + encodeURIComponent(h.id) + '">' + esc(h.topic) + '</a></td>' +
+        '<td class="muted">' + esc(h.subject || "综合") + '</td>' +
+        '<td class="muted">' + esc(LL.fmtDate(h.date)) + '</td>' +
+        '<td><span class="pill green">' + pct(h.mastery != null ? h.mastery : h.score) + '</span></td></tr>';
+    }).join("") : '<tr><td colspan="4" class="muted">暂无学习历史</td></tr>';
+  }
+
+  function renderWrong() {
+    var weak = profile.weak_points || [];
+    document.getElementById("wrongStats").innerHTML = weak.length ? weak.map(function (w) {
+      return '<div class="stat-row"><span>' + esc(w.text) + '</span><span><b>' + w.count + '</b> 次 · <span class="pill' + (w.severity === "中" ? " amber" : "") + '">' + esc(w.severity || "低") + '</span></span></div>';
+    }).join("") : '<div class="empty">暂无错题数据</div>';
+    document.getElementById("wrongList").innerHTML = weak.length ? weak.slice(0, 5).map(function (w) {
+      return '<div class="stat-row"><span style="flex:1;min-width:0"><b style="font-size:13px">' + esc(w.text) + '</b></span>' +
+        '<a class="btn sm" href="start.html?topic=' + encodeURIComponent(w.text) + '">再练一次</a></div>';
+    }).join("") : '<div class="empty">暂无近期薄弱项</div>';
+  }
+
+  function renderGraph() {
+    var nodes = graph.nodes || [];
+    document.getElementById("graphHint").textContent = nodes.length ? (nodes.length + " 个知识点") : "—";
+    if (!nodes.length) { document.getElementById("graphBody").innerHTML = '<div class="empty">暂无知识图谱数据</div>'; return; }
+    var groups = {};
+    nodes.forEach(function (n) { (groups[n.category] = groups[n.category] || []).push(n); });
+    document.getElementById("graphBody").innerHTML = Object.keys(groups).map(function (c) {
+      return '<div class="graph-cat"><h4>' + esc(CAT[c] || c) + '（' + groups[c].length + '）</h4>' +
+        '<div class="node-chips">' + groups[c].map(function (n) {
+          return '<span class="node-chip">' + esc(n.name) + ' <span class="d">难度' + (n.difficulty || 1) + '</span></span>';
+        }).join("") + '</div></div>';
+    }).join("");
+  }
+
+  function loadHistory() {
+    var subj = document.getElementById("filterSubject").value;
+    api.getHistory({ subject: subj === "全部" ? "" : subj }).then(function (j) {
+      renderHistory((j && j.data) || []);
+    }).catch(function () { renderHistory([]); });
+  }
+
+  document.getElementById("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest(".tab"); if (!b) return;
+    document.querySelectorAll(".tab").forEach(function (x) { x.classList.toggle("active", x === b); });
+    ["overview", "history", "wrong", "graph"].forEach(function (k) {
+      document.getElementById("panel-" + k).classList.toggle("hidden", k !== b.dataset.tab);
+    });
+    if (b.dataset.tab === "history") loadHistory();
+  });
+  document.getElementById("refreshHistory").addEventListener("click", loadHistory);
+  document.getElementById("filterSubject").addEventListener("change", loadHistory);
+
+  LL.boot({ nav: "profile" }).then(function (user) {
+    if (!user) { renderOverview(); return; }
+    uid = user.id;
+    Promise.all([
+      api.profile().catch(function () { return { code: 1 }; }),
+      api.getStudentStatus(uid).catch(function () { return { code: 1 }; }),
+      api.getKnowledgeGraph().catch(function () { return { code: 1 }; })
+    ]).then(function (r) {
+      profile = (r[0] && r[0].data) || {};
+      status = (r[1] && r[1].data) || {};
+      graph = (r[2] && r[2].data) || { nodes: [] };
+      renderOverview(); renderWrong(); renderGraph();
+      loadHistory();
+    });
+  });
+})();
+</script>
+</body>
+</html>

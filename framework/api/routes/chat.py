@@ -1,0 +1,417 @@
+# -*- coding: utf-8 -*-
+"""
+灵学 lumilearn - Chat API 路由
+提供对话端点：支持流式响应（SSE）、费曼模式、多模型调用
+
+作者：lumilearn AI自动化专家
+版本：1.0.0
+日期：2026-06-02
+"""
+
+import json
+import logging
+import time
+
+import requests
+from flask import Blueprint, Response, jsonify, request, stream_with_context
+
+from framework.api.routes.auth import require_user_token
+from framework.database import db
+from framework.services.chat_service import get_chat_service
+from framework.services.provider_service import get_provider_service
+
+logger = logging.getLogger("lumilearn.routes.chat")
+
+chat_bp = Blueprint("chat", __name__)
+
+CLOUD_TIMEOUT = 300
+
+
+@chat_bp.route("/api/port-config", methods=["GET", "OPTIONS"])
+def port_config():
+    """获取当前请求端口配置的模型（供前端终端显示/默认选择）"""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"})
+    provider, model = _resolve_port_config()
+    return jsonify({
+        "success": True,
+        "provider": provider,
+        "model": model,
+    })
+
+
+def _get_provider_service():
+    """获取 ProviderService 单例（与 Admin 面板共享配置，热更新）"""
+    return get_provider_service()
+
+
+def _resolve_port_config():
+    """
+    根据请求来源端口解析该端口配置的 provider/model。
+    若无端口映射，则回退到 DEFAULT_MODEL（provider:model 约定）。
+    返回 (provider, model) 或 (None, None)。
+    """
+    try:
+        from flask import request as req
+        host = req.host  # 形如 localhost:18080
+        port = host.rsplit(":", 1)[-1]
+        ps = _get_provider_service()
+        if port.isdigit():
+            port_int = int(port)
+            port_map = ps.get_port_model_map()
+            for key, cfg in port_map.items():
+                if int(cfg.get("port", 0)) == port_int:
+                    return cfg.get("provider", "ollama"), cfg.get("model", "")
+        # 端口未命中：回退到 DEFAULT_MODEL / providers.yaml 顶层 default_model
+        default_provider, default_model = ps.get_default_model()
+        if default_provider and default_model:
+            return default_provider, default_model
+        return None, None
+    except Exception:
+        return None, None
+
+
+def _resolve_cloud_model(model: str):
+    """
+    检查 model 是否属于配置的提供者（云端 API 或本地 OpenAI 兼容容器）。
+    如果是则返回 (provider_key, api_key, base_url, protocol)；本地模型返回 None。
+    云端提供者需 API Key；本地容器（vLLM / LM Studio / LocalAI / llama.cpp 等，
+    配置里 local: true）即使没有 API Key 也会被解析，走同一 OpenAI 兼容接口。
+    """
+    ps = _get_provider_service()
+    providers = ps._providers
+    for key, cfg in providers.items():
+        if not cfg.get("enabled", True):
+            continue
+        for m in cfg.get("models", []):
+            if m.get("id") == model:
+                api_key = cfg.get("api_key")
+                base_url = cfg.get("base_url")
+                protocol = cfg.get("protocol", "openai")
+                # 云端需 API Key；本地容器（local=true）无 Key 也可用
+                if api_key or cfg.get("local", False):
+                    return (key, api_key, base_url, protocol)
+    return None
+
+
+def _cloud_chat_stream(model, messages, api_key, base_url, temperature, max_tokens):
+    """调用云端/本地容器 OpenAI 兼容 API 进行流式对话（本地容器可无 API Key）"""
+    headers = {
+        # 本地容器（vLLM / LM Studio 等）通常不校验 Key，仍发送占位 Authorization
+        "Authorization": f"Bearer {api_key or 'not-needed'}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        resp = requests.post(
+            f"{base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=CLOUD_TIMEOUT,
+            stream=True,
+        )
+
+        if resp.status_code != 200:
+            error_body = resp.text[:500]
+            yield json.dumps({
+                "error": f"cloud API returned {resp.status_code}: {error_body}"
+            }, ensure_ascii=False)
+            return
+
+        for line in resp.iter_lines():
+            if line:
+                line_str = line.decode("utf-8")
+                if line_str.startswith("data: "):
+                    data_str = line_str[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content", "")
+                            yield json.dumps({
+                                "message": {"content": content},
+                                "done": False,
+                            }, ensure_ascii=False)
+                    except json.JSONDecodeError:
+                        continue
+
+    except requests.exceptions.Timeout:
+        yield json.dumps({"error": "cloud API request timed out"}, ensure_ascii=False)
+    except requests.exceptions.ConnectionError:
+        yield json.dumps({"error": "unable to connect to cloud API"}, ensure_ascii=False)
+    except Exception as e:
+        yield json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+def _cloud_chat_sync(model, messages, api_key, base_url, temperature, max_tokens):
+    """调用云端/本地容器 OpenAI 兼容 API 进行同步对话（本地容器可无 API Key）"""
+    headers = {
+        "Authorization": f"Bearer {api_key or 'not-needed'}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    resp = requests.post(
+        f"{base_url}/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=CLOUD_TIMEOUT,
+    )
+
+    if resp.status_code != 200:
+        return {"error": f"cloud API returned {resp.status_code}: {resp.text[:500]}"}
+
+    data = resp.json()
+    choices = data.get("choices", [])
+    if choices:
+        message = choices[0].get("message", {})
+        return {
+            "message": message,
+            "model": model,
+            "done": True,
+        }
+    return {"error": "no response from cloud API"}
+
+
+def _cloud_chat_stream_dispatch(protocol, model, messages, api_key, base_url,
+                                temperature, max_tokens):
+    """按 provider 的 protocol 分派流式云端对话。
+
+    openai（含 ollama / 本地容器，及 protocol 缺省）走既有 OpenAI 兼容实现；
+    anthropic / gemini 走对应协议适配器（其内部已输出 NDJSON 兼容的 JSON 字符串）。
+    """
+    if protocol == "anthropic":
+        from framework.models.anthropic_provider import AnthropicProvider
+        provider = AnthropicProvider(base_url=base_url, default_model=model, api_key=api_key)
+        yield from provider.chat(messages, model=model, temperature=temperature,
+                                 max_tokens=max_tokens, stream=True)
+        return
+    if protocol == "gemini":
+        from framework.models.gemini_provider import GeminiProvider
+        provider = GeminiProvider(base_url=base_url, default_model=model, api_key=api_key)
+        yield from provider.chat(messages, model=model, temperature=temperature,
+                                 max_tokens=max_tokens, stream=True)
+        return
+    # 默认：OpenAI 兼容（保持既有行为不变）
+    yield from _cloud_chat_stream(model, messages, api_key, base_url,
+                                  temperature, max_tokens)
+
+
+def _cloud_chat_sync_dispatch(protocol, model, messages, api_key, base_url,
+                              temperature, max_tokens):
+    """按 provider 的 protocol 分派同步云端对话（默认 OpenAI 兼容，行为不变）"""
+    if protocol == "anthropic":
+        from framework.models.anthropic_provider import AnthropicProvider
+        provider = AnthropicProvider(base_url=base_url, default_model=model, api_key=api_key)
+        return provider.chat_sync(messages, model=model, temperature=temperature,
+                                  max_tokens=max_tokens)
+    if protocol == "gemini":
+        from framework.models.gemini_provider import GeminiProvider
+        provider = GeminiProvider(base_url=base_url, default_model=model, api_key=api_key)
+        return provider.chat_sync(messages, model=model, temperature=temperature,
+                                  max_tokens=max_tokens)
+    return _cloud_chat_sync(model, messages, api_key, base_url, temperature, max_tokens)
+
+
+@chat_bp.route("/api/chat", methods=["POST", "OPTIONS"])
+def chat():
+    """
+    对话API端点
+
+    请求体（JSON）：
+        {
+            "model": "模型名称",
+            "messages": [{"role": "user", "content": "..."}],
+            "mode": "chat" | "reasoning" | "creative" | "feynman",
+            "temperature": 0.7,
+            "max_tokens": 2048,
+            "stream": true
+        }
+
+    流式响应（NDJSON）：
+        每行一个JSON对象，包含 message.content 或 error 字段
+    """
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"})
+
+    # 需要登录：防止未授权调用付费模型/刷推理日志
+    if not require_user_token():
+        return jsonify({"error": "未登录，请先登录"}), 401
+
+    data = request.get_json(force=True)
+    messages = list(data.get("messages", []))
+    model = data.get("model", None)
+    mode = data.get("mode", "chat")
+    role = data.get("role", None)  # 多智能体角色: teacher/assistant/student
+    temperature = data.get("temperature", 0.7)
+    max_tokens = data.get("max_tokens", 2048)
+    stream = data.get("stream", True)
+
+    if not messages:
+        return jsonify({"error": "缺少 messages 字段"}), 400
+
+    # 端口模型配置解析：未指定 model 时，根据请求端口自动选择该端口配置的模型
+    if not model:
+        port_provider, port_model = _resolve_port_config()
+        if port_model:
+            model = port_model
+            logger.info(f"端口配置自动选择模型: {port_provider}/{port_model}")
+
+    # 多智能体角色 System Prompt
+    ROLE_PROMPTS = {
+        "teacher": "你是一位经验丰富的AI教师。请用结构化方式讲解知识：先给出核心概念，再逐步推导，最后总结要点。使用板书式语言，适当使用\"我们来看\"、\"请注意\"等教师用语。",
+        "assistant": "你是一位耐心的AI助教。请用简洁直接的方式回答问题，补充细节，给出具体例子。当学生困惑时，用不同角度重新解释。",
+        "student": "你是一位好奇的AI同学。请以学习者视角提出疑问、分享不同理解角度，偶尔提出有深度的追问。你的目标是促进讨论和思考，而非直接给出答案。",
+    }
+
+    if role and role in ROLE_PROMPTS:
+        # 在消息列表开头插入角色 system prompt
+        system_msg = {"role": "system", "content": ROLE_PROMPTS[role]}
+        # 避免重复添加
+        if not messages or messages[0].get("role") != "system":
+            messages = [system_msg] + messages
+
+    # 检查是否为云端模型
+    cloud_info = _resolve_cloud_model(model) if model else None
+
+    if cloud_info:
+        provider_key, api_key, base_url, protocol = cloud_info
+
+        if not stream:
+            result = _cloud_chat_sync_dispatch(protocol, model, messages, api_key, base_url,
+                                               temperature, max_tokens)
+            return jsonify(result)
+
+        def generate_cloud():
+            try:
+                for chunk in _cloud_chat_stream_dispatch(protocol, model, messages, api_key,
+                                                         base_url, temperature, max_tokens):
+                    yield chunk.encode("utf-8") + b"\n"
+            except Exception as e:
+                logger.error(f"云端流式对话异常: {e}")
+                yield json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8") + b"\n"
+
+        return Response(
+            stream_with_context(generate_cloud()),
+            content_type="application/x-ndjson; charset=utf-8",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive"
+            }
+        )
+
+    # 本地模型：使用现有 Ollama 调用逻辑
+    chat_service = get_chat_service()
+
+    if not stream:
+        t0 = time.time()
+        result = chat_service.chat_sync(messages, mode=mode, model=model,
+                                        temperature=temperature,
+                                        max_tokens=max_tokens)
+        # 推理过程写库（终端/课堂聊天，供管理员查看用户真实使用记录；失败不影响主流程）
+        try:
+            db.init()
+            topic = ""
+            for m in messages:
+                if m.get("role") == "user":
+                    topic = str(m.get("content", ""))[:100]
+                    break
+            db.add_reasoning_log(
+                user_id=0,  # 终端/课堂匿名会话；关联用户由上层会话系统负责
+                session_id=f"chat:{role or 'anonymous'}:{topic[:40]}",
+                mode=mode if mode in ("feynman", "chat") else "chat",
+                topic=topic,
+                step_order=0,
+                step_name="",
+                model_used=model or "",
+                input_context="\n".join(
+                    f"{m.get('role')}: {str(m.get('content', ''))[:200]}" for m in messages
+                )[:2000],
+                output=(json.dumps(result, ensure_ascii=False)
+                        if isinstance(result, dict) else str(result))[:4000],
+                latency_ms=int((time.time() - t0) * 1000),
+                status="success",
+            )
+        except Exception as _e:
+            logger.warning(f"对话推理日志写库失败: {_e}")
+        return jsonify(result)
+
+    def generate():
+        try:
+            for chunk in chat_service.chat(
+                messages, mode=mode, model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True
+            ):
+                yield chunk.encode("utf-8") + b"\n"
+        except Exception as e:
+            logger.error(f"流式对话异常: {e}")
+            yield json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8") + b"\n"
+
+    return Response(
+        stream_with_context(generate()),
+        content_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive"
+        }
+    )
+
+
+@chat_bp.route("/api/reasoning-logs", methods=["GET", "OPTIONS"])
+def reasoning_logs():
+    """
+    模型/智能体自查接口（只读，无需管理员权限）
+    按 session_id 或 topic（至少一个）查询该会话/主题的完整推理链列表，
+    供模型自我回顾学习过程。返回每条日志的
+    step_order / step_name / output / latency_ms / model_used / created_at，
+    其中 output 统一截断 2000 字。
+    """
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"})
+    # 只读接口也需登录：日志含学生回答原文，防止隐私泄露
+    if not require_user_token():
+        return jsonify({"error": "未登录，请先登录"}), 401
+    session_id = request.args.get("session_id") or None
+    topic = request.args.get("topic") or None
+    if not session_id and not topic:
+        return jsonify({"error": "缺少参数：至少提供 session_id 或 topic 之一"}), 400
+    logs = db.get_reasoning_logs(session_id=session_id, limit=500)
+    # topic 按包含匹配（写库时 topic 为完整首条消息，用户常只记得关键词）
+    if topic:
+        logs = [log for log in logs if topic in (log.get("topic") or "")]
+    items = []
+    for log in logs:
+        output = log.get("output") or ""
+        truncated = len(output) > 2000
+        if truncated:
+            output = output[:2000] + "…（已截断）"
+        items.append({
+            "id": log["id"],
+            "step_order": log.get("step_order"),
+            "step_name": log.get("step_name"),
+            "output": output,
+            "truncated": truncated,
+            "latency_ms": log.get("latency_ms"),
+            "model_used": log.get("model_used"),
+            "created_at": log.get("created_at"),
+        })
+    return jsonify({"success": True, "items": items})

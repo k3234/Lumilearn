@@ -1,0 +1,381 @@
+#!/usr/bin/env python3
+"""
+灵学 lumilearn - 对话服务
+封装 ModelProvider 调用，集成费曼引擎，消息历史管理
+"""
+import json
+import logging
+import os
+import time
+from typing import Any, Dict, Generator, List, Optional
+
+import requests
+
+from framework.core.config import get_config
+from framework.core.router import ModelRouter, RouteRequest
+from framework.engines.feynman_engine import FeynmanEngine
+from framework.models.ollama_provider import get_ollama_provider
+
+logger = logging.getLogger("lumilearn.chat_service")
+
+DEFAULT_MODEL = "lumilearn-v2:latest"
+GATEWAY_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+TIMEOUT = 300
+
+
+class ChatService:
+    """
+    对话服务
+    """
+
+    def __init__(self, config_dir: str = None):
+        self._config = get_config(config_dir)
+        self._router = ModelRouter(config_dir)
+        self._ollama = get_ollama_provider()
+        self._feynman: Optional[FeynmanEngine] = None
+        self._history: Dict[str, List[Dict[str, str]]] = {}
+        self._default_model = self._ollama.default_model or DEFAULT_MODEL
+        # 健康检查缓存（30s TTL）
+        self._health_cache_result: Optional[Dict[str, Any]] = None
+        self._health_cache_ts: float = 0.0
+
+    def _get_feynman(self) -> FeynmanEngine:
+        """懒加载费曼引擎（优先使用配置的 feynman_model，回退默认模型）"""
+        if self._feynman is None:
+            model = self._default_model
+            try:
+                cfg = self._config or get_config()
+                feynman_model = (cfg or {}).get("ollama", {}).get("feynman_model")
+                if feynman_model:
+                    model = feynman_model
+            except Exception as _e:
+                logger.warning(f"读取 feynman_model 配置失败，回退默认模型: {_e}")
+            self._feynman = FeynmanEngine(model_name=model)
+        return self._feynman
+
+    def chat(self, messages: List[Dict[str, str]],
+             mode: str = "chat",
+             temperature: float = 0.7,
+             max_tokens: int = 2048,
+             stream: bool = True,
+             model: str = None) -> Generator:
+        """流式对话"""
+        if mode == "feynman":
+            yield from self._feynman_chat(messages, stream)
+            return
+
+        # 显式指定模型时直接使用，否则路由选择模型
+        if model:
+            pass  # 直接使用调用方传入的 model
+        else:
+            last_msg = messages[-1]["content"] if messages else ""
+            route_request = RouteRequest(
+                topic=last_msg[:50],
+                mode=mode,
+                messages=messages
+            )
+            route_result = self._router.route(route_request)
+            model = route_result.model_name
+
+        if stream:
+            yield json.dumps({"model_version": self.get_model_version(model)}, ensure_ascii=False)
+            yield from self._stream_chat(messages, model, temperature, max_tokens)
+        else:
+            result = self._ollama.chat(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            yield json.dumps(result, ensure_ascii=False)
+
+    def _stream_chat(self, messages: List[Dict[str, str]],
+                     model: str,
+                     temperature: float,
+                     max_tokens: int) -> Generator:
+        """通过 Ollama API 进行流式对话"""
+        base_url = os.environ.get("OLLAMA_BASE_URL", GATEWAY_URL)
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "options": {"temperature": temperature, "num_predict": max_tokens}
+        }
+
+        try:
+            resp = requests.post(
+                f"{base_url}/api/chat",
+                json=payload,
+                timeout=TIMEOUT,
+                stream=True
+            )
+
+            if resp.status_code != 200:
+                error_body = resp.text[:500]
+                yield json.dumps({
+                    "error": f"gateway returned {resp.status_code}: {error_body}"
+                }, ensure_ascii=False)
+                return
+
+            for line in resp.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        yield json.dumps(data, ensure_ascii=False)
+                    except json.JSONDecodeError:
+                        continue
+
+        except requests.exceptions.Timeout:
+            yield json.dumps({"error": "gateway request timed out"}, ensure_ascii=False)
+        except requests.exceptions.ConnectionError:
+            yield json.dumps({"error": "unable to connect to gateway"}, ensure_ascii=False)
+        except Exception as e:
+            yield json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    def _feynman_chat(self, messages: List[Dict[str, str]],
+                      stream: bool = True) -> Generator:
+        """费曼教学模式对话（方案B：交互式单步引导）"""
+        feynman = self._get_feynman()
+
+        # 提取主题：第一条 user 消息
+        topic = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                topic = msg.get("content", "")
+                break
+
+        if not topic:
+            yield json.dumps({
+                "content": "请提供一个学习主题，我来用费曼教学法引导你思考。",
+                "done": True
+            }, ensure_ascii=False)
+            return
+
+        # 判断学生水平（逐条消息按 college → senior → junior 顺序检测）
+        level = "junior"
+        for msg in reversed(messages):
+            content = msg.get("content", "").lower()
+            # 大学/college：含"大学"或"college"（保持现状）
+            if "大学" in content or "college" in content:
+                level = "college"
+                break
+            # 高中/senior：先精确判断"高一""高二""高三"（在"高中"之前判断，避免混淆），再判断"高中""senior"
+            elif any(kw in content for kw in ("高一", "高二", "高三")):
+                level = "senior"
+                break
+            elif "高中" in content or "senior" in content:
+                level = "senior"
+                break
+            # 初中/junior：含"初中""初一""初二""初三"或"八年级""九年级"
+            elif any(kw in content for kw in ("初中", "初一", "初二", "初三", "八年级", "九年级")):
+                level = "junior"
+                break
+
+        # 交互式引导：把完整对话历史交给引擎，只生成下一步
+        step_data = feynman.explain_step(topic, level, dialogue=messages)
+
+        # 推理过程写库（供管理员检查 / 教师查看 / 模型自查）
+        try:
+            from framework.database import db
+            db.init()
+            ctx_parts = []
+            for m in messages[:-1]:
+                if m.get("role") == "user":
+                    ctx_parts.append("学生：" + str(m.get("content", ""))[:300])
+                else:
+                    ctx_parts.append("引导者：" + str(m.get("content", ""))[:300])
+            db.add_reasoning_log(
+                user_id=0,  # 终端匿名会话；关联用户由上层会话系统负责
+                session_id="feynman:" + topic[:50],
+                mode="feynman",
+                topic=topic[:200],
+                step_order=step_data["step"],
+                step_name=step_data["step_name"],
+                model_used=step_data["model_used"],
+                input_context="\n".join(ctx_parts)[:2000],
+                output=step_data["content"][:4000],
+                latency_ms=0,
+                status="success",
+            )
+        except Exception as _e:
+            logger.warning(f"费曼推理过程写库失败: {_e}")
+
+        yield json.dumps({
+            "step": step_data["step"],
+            "step_name": step_data["step_name"],
+            "content": step_data["content"],
+            "is_last": step_data["is_last"],
+            "mode": "feynman",
+            "model_used": step_data["model_used"],
+        }, ensure_ascii=False)
+
+    def chat_sync(self, messages: List[Dict[str, str]],
+                  mode: str = "chat",
+                  temperature: float = 0.7,
+                  max_tokens: int = 2048,
+                  model: str = None) -> Dict[str, Any]:
+        """同步对话"""
+        if mode == "feynman":
+            feynman = self._get_feynman()
+            topic = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    topic = msg.get("content", "")
+                    break
+            return feynman.explain(topic, "junior")
+
+        # 显式指定模型时直接使用，否则路由选择模型
+        if model:
+            pass  # 直接使用调用方传入的 model
+        else:
+            route_request = RouteRequest(
+                topic=messages[-1]["content"][:50] if messages else "",
+                mode=mode,
+                messages=messages
+            )
+            route_result = self._router.route(route_request)
+            model = route_result.model_name
+
+        result = self._ollama.chat_sync(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        result["model_version"] = self.get_model_version(model)
+        return result
+
+    def get_models(self) -> List[Dict[str, Any]]:
+        """获取可用模型列表"""
+        base_url = os.environ.get("OLLAMA_BASE_URL", GATEWAY_URL)
+        try:
+            resp = requests.get(f"{base_url}/api/tags", timeout=10)
+            models = resp.json().get("models", [])
+            return [{
+                "name": m.get("name", "unknown"),
+                "size": m.get("size", "?"),
+                "modified": m.get("modified_at", "")
+            } for m in models]
+        except Exception as e:
+            logger.error(f"获取模型列表失败: {e}")
+            return []
+
+    def list_custom_models(self) -> List[Dict[str, Any]]:
+        """获取自定义训练模型列表"""
+        try:
+            model_list = get_config().get("models", {}).get("providers", {})
+            custom_models = []
+            for provider_key, provider_cfg in model_list.items():
+                if not provider_cfg.get("enabled", True):
+                    continue
+                for model in provider_cfg.get("models", []):
+                    is_custom = model.get("custom", False)
+                    has_custom_tag = "custom" in model.get("tags", [])
+                    if is_custom or has_custom_tag:
+                        custom_models.append({
+                            "name": model.get("id", "unknown"),
+                            "model_id": model.get("id", "unknown"),
+                            "provider": provider_key,
+                            "base_url": provider_cfg.get("base_url", ""),
+                            "priority": model.get("priority", None),
+                            "tags": model.get("tags", []),
+                            "custom": True,
+                        })
+            return custom_models
+        except Exception as e:
+            logger.error(f"获取自定义模型列表失败: {e}")
+            return []
+
+    def get_model_info(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """获取指定模型的元数据信息"""
+        try:
+            model_list = get_config().get("models", {}).get("providers", {})
+            for provider_key, provider_cfg in model_list.items():
+                for model in provider_cfg.get("models", []):
+                    if model.get("id") == model_name:
+                        return {
+                            "name": model.get("id", "unknown"),
+                            "model_id": model.get("id", "unknown"),
+                            "provider": provider_key,
+                            "base_url": provider_cfg.get("base_url", ""),
+                            "priority": model.get("priority", None),
+                            "tags": model.get("tags", []),
+                            "custom": model.get("custom", False) or ("custom" in model.get("tags", [])),
+                            "version": model.get("version", "latest"),
+                        }
+            return None
+        except Exception as e:
+            logger.error(f"获取模型信息失败 ({model_name}): {e}")
+            return None
+
+    def get_model_version(self, model_name: str = None) -> str:
+        """获取模型版本信息"""
+        if model_name is None:
+            model_name = self._default_model
+        info = self.get_model_info(model_name)
+        if info:
+            return info.get("version", "latest")
+        return "latest"
+
+    def health_check(self) -> Dict[str, Any]:
+        """健康检查（带缓存，避免每次请求都触发 Ollama 连接探测）"""
+        base_url = os.environ.get("OLLAMA_BASE_URL", GATEWAY_URL)
+        result = {
+            "status": "healthy",
+            "gateway": "online",
+            "default_model": self._default_model,
+            # 模型版本需访问网关，默认先给 unknown，仅在网关可达时再查询，
+            # 避免网关离线时健康检查被该查询的长超时阻塞
+            "model_version": "unknown",
+            "feynman_available": self._feynman is not None,
+        }
+        # 离线模式：跳过 Ollama 探测，直接返回健康
+        if os.environ.get("LUMILEARN_OFFLINE", "").lower() in ("1", "true", "yes"):
+            result["gateway"] = "offline"
+            result["status"] = "degraded"
+            result["offline_mode"] = True
+            return result
+        # 30 秒缓存，避免高频健康检查反复触发 Ollama 连接
+        now = time.time()
+        if (now - self._health_cache_ts) < 30 and self._health_cache_result is not None:
+            cached = dict(self._health_cache_result)
+            cached["cached"] = True
+            return cached
+        try:
+            t0 = time.time()
+            resp = requests.get(f"{base_url}/api/tags", timeout=2)
+            latency = round((time.time() - t0) * 1000)
+            models_count = len(resp.json().get("models", []))
+            result["models"] = models_count
+            result["latency_ms"] = latency
+        except Exception as e:
+            result["status"] = "degraded"
+            result["gateway"] = "offline"
+            result["error"] = str(e)
+        self._health_cache_result = result
+        self._health_cache_ts = now
+        return result
+
+    def update_history(self, session_id: str, messages: List[Dict[str, str]]):
+        """更新对话历史"""
+        self._history[session_id] = messages
+
+    def get_history(self, session_id: str) -> List[Dict[str, str]]:
+        """获取对话历史"""
+        return self._history.get(session_id, [])
+
+    def clear_history(self, session_id: str):
+        """清除对话历史"""
+        self._history.pop(session_id, None)
+
+
+_chat_service_instance: Optional[ChatService] = None
+
+
+def get_chat_service(config_dir: str = None) -> ChatService:
+    """获取 ChatService 单例"""
+    global _chat_service_instance
+    if _chat_service_instance is None:
+        _chat_service_instance = ChatService(config_dir)
+    return _chat_service_instance

@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LumiLearn 教师端</title>
+<link rel="stylesheet" href="/static/ui/lumi.css">
+<link rel="stylesheet" href="/static/ui/icons.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--background);
+    color: var(--color-text);
+    min-height: 100vh;
+  }
+
+  /* ── 登录页 ── */
+  .login-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--muted);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .login-box {
+    background: var(--card); border-radius: 20px; padding: 40px;
+    width: 380px; box-shadow: var(--shadow-lg);
+  }
+  .login-box .logo { text-align: center; margin-bottom: 24px; }
+  .login-box .logo .icon { font-size: 40px; }
+  .login-box .logo h1 { font-size: 22px; color: var(--color-text); margin-top: 8px; }
+  .login-box .logo p { font-size: 13px; color: var(--color-text-muted); margin-top: 4px; }
+  .login-box input {
+    width: 100%; padding: 12px 16px; margin-bottom: 12px;
+    border: 1.5px solid var(--border); border-radius: 10px; font-size: 15px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .login-box input:focus { border-color: var(--ring); }
+  .login-box button {
+    width: 100%; padding: 13px; background: var(--primary);
+    color: var(--color-primary-foreground); border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: transform 0.1s, box-shadow 0.2s;
+  }
+  .login-box button:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .login-error { color: var(--destructive); font-size: 13px; margin-bottom: 10px; min-height: 18px; text-align: center; }
+  .login-hint { font-size: 12px; color: var(--color-text-muted); text-align: center; margin-top: 16px; }
+
+  /* ── 布局 ── */
+  .app { display: none; }
+  .app.active { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 220px; background: var(--card); border-right: 1px solid var(--border);
+    padding: 20px 12px; flex-shrink: 0; display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .sidebar .brand .icon { font-size: 26px; }
+  .sidebar .brand h1 { font-size: 17px; color: var(--color-text); }
+  .sidebar .brand small { display: block; font-size: 11px; color: var(--color-text-muted); font-weight: 400; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px; border-radius: 10px; font-size: 14px; color: var(--color-text-muted);
+    cursor: pointer; transition: all 0.15s; margin-bottom: 4px; border: none; background: none; width: 100%; text-align: left;
+  }
+  .nav-item:hover { background: var(--muted); color: var(--color-text); }
+  .nav-item.active { background: var(--accent); color: var(--primary); font-weight: 600; }
+  .sidebar .user-card {
+    margin-top: auto; padding: 12px; background: var(--muted); border-radius: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .user-card .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: var(--color-primary-foreground); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .user-card .uname { font-size: 13px; font-weight: 600; color: var(--color-text); }
+  .user-card .urole { font-size: 11px; color: var(--color-text-muted); }
+  .user-card .logout-btn { margin-left: auto; padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--color-text-muted); cursor: pointer; background: var(--card); }
+  .user-card .logout-btn:hover { background: var(--destructive-subtle); color: var(--destructive); border-color: var(--destructive-border); }
+
+  .main { flex: 1; padding: 24px 32px; max-width: 1200px; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+  .page-title { font-size: 20px; font-weight: 700; color: var(--color-text); margin-bottom: 4px; }
+  .page-sub { font-size: 13px; color: var(--color-text-muted); margin-bottom: 20px; }
+
+  /* ── 卡片 ── */
+  .card {
+    background: var(--card); border-radius: 14px; padding: 20px;
+    box-shadow: var(--shadow-sm); margin-bottom: 16px;
+  }
+  .card-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+  /* 统计卡 */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  .stat-card {
+    background: var(--card); border-radius: 14px; padding: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat-card .num { font-size: 28px; font-weight: 700; color: var(--primary); }
+  .stat-card .label { font-size: 12px; color: var(--color-text-muted); margin-top: 4px; }
+  .stat-card .extra { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+
+  /* 按钮 */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none; transition: all 0.15s;
+  }
+  .btn-primary { background: var(--primary); color: var(--color-primary-foreground); }
+  .btn-primary:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .btn-ghost { background: var(--muted); color: var(--color-text); }
+  .btn-ghost:hover { background: var(--border); }
+  .btn-danger { background: var(--destructive-subtle); color: var(--destructive); border: 1px solid var(--destructive-border); }
+  .btn-danger:hover { background: var(--destructive-border); }
+  .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 7px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; color: var(--color-text-muted); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 11px 12px; font-size: 13px; color: var(--color-text); border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:hover td { background: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+
+  /* 徽标 */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .badge-blue { background: var(--accent); color: var(--primary); }
+  .badge-green { background: var(--success-subtle); color: var(--success-text); }
+  .badge-red { background: var(--destructive-subtle); color: var(--destructive-text); }
+  .badge-orange { background: var(--warning-subtle); color: var(--warning-text); }
+  .badge-gray { background: var(--muted); color: var(--color-text-muted); }
+
+  /* 表单 */
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .form-group { flex: 1; min-width: 150px; }
+  .form-group label { display: block; font-size: 12px; color: var(--color-text-muted); margin-bottom: 5px; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 13px; outline: none; transition: border-color 0.2s; font-family: inherit;
+  }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--ring); }
+
+  /* 树形结构 */
+  .org-block { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .org-head {
+    padding: 12px 16px; background: var(--muted); display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 600; color: var(--color-text);
+  }
+  .org-children { padding: 10px 16px 14px; }
+  .org-child {
+    padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--color-text);
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+    background: var(--muted); border: 1px solid var(--border);
+  }
+  .org-child .del { color: var(--color-text-muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .org-child .del:hover { background: var(--destructive-subtle); color: var(--destructive); }
+
+  /* 学生详情弹窗 */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(24,24,27,0.5);
+    display: none; align-items: center; justify-content: center; z-index: 900; padding: 20px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 16px; width: 860px; max-width: 100%; max-height: 88vh;
+    overflow-y: auto; padding: 24px; box-shadow: var(--shadow-lg);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .modal-head h3 { font-size: 17px; color: var(--color-text); }
+  .modal-close { font-size: 22px; color: var(--color-text-muted); cursor: pointer; border: none; background: none; }
+  .modal-close:hover { color: var(--color-text); }
+  .modal-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  .modal-tab { padding: 7px 14px; border-radius: 8px; font-size: 13px; color: var(--color-text-muted); cursor: pointer; border: none; background: none; }
+  .modal-tab.active { background: var(--accent); color: var(--primary); font-weight: 600; }
+
+  /* 进度条 */
+  .bar { height: 8px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 4px; background: var(--primary); }
+
+  /* toast */
+  .toast-box {
+    position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--foreground); color: var(--background); padding: 10px 22px; border-radius: 10px;
+    font-size: 13px; z-index: 2000; box-shadow: var(--shadow-md);
+  }
+
+  /* 空状态 */
+  .empty { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 32px 0; }
+  .empty .e-icon { font-size: 36px; margin-bottom: 10px; }
+
+  /* 资源详情 */
+  .resource-content {
+    white-space: pre-wrap; font-size: 13.5px; line-height: 1.8; color: var(--color-text);
+    background: var(--muted); border-radius: 10px; padding: 16px; margin-top: 10px;
+  }
+  .tag { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 2px 10px; border-radius: 16px; font-size: 11px; background: var(--muted); color: var(--color-text-muted); }
+  .tag-green { background: var(--success-subtle); color: var(--success-text); }
+  .tag-red { background: var(--destructive-subtle); color: var(--destructive-text); }
+  .tag-amber { background: var(--warning-subtle); color: var(--warning-text); }
+
+  /* 学习分析图表容器 */
+  .weak-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .weak-row:last-child { border-bottom: none; }
+  .heat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+  .heat-cell { border-radius: 10px; padding: 12px 10px; text-align: center; border: 1px solid var(--border); }
+  .heat-cell b { font-size: 18px; font-family: monospace; }
+  .heat-cell span { display: block; font-size: 11px; color: var(--color-text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 推理记录详情 */
+  .reasoning-block {
+    white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.7; color: var(--color-text);
+    background: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    max-height: 260px; overflow-y: auto;
+  }
+
+  .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; }
+  .flex { display: flex; align-items: center; gap: 10px; }
+  .between { display: flex; align-items: center; justify-content: space-between; }
+  .muted { color: var(--color-text-muted); } .small { font-size: 12px; }
+
+  @media (max-width: 800px) {
+    .sidebar { display: none; }
+    .main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="logo">
+      <div class="icon">🧑‍🏫</div>
+      <h1>LumiLearn 教师端</h1>
+      <p>班级管理 · 学习监控 · 任务布置</p>
+    </div>
+    <div class="login-error" id="loginError"></div>
+    <input type="text" id="loginUsername" placeholder="用户名" autocomplete="username">
+    <input type="password" id="loginPassword" placeholder="密码" autocomplete="current-password"
+           onkeypress="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">登 录</button>
+    <div class="login-hint">使用教师账号登录（如 123）</div>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="icon">🧑‍🏫</span>
+      <div><h1>LumiLearn</h1><small>教师工作台</small></div>
+    </div>
+    <button class="nav-item active" data-page="overview" onclick="switchPage('overview')">📊 总览</button>
+    <button class="nav-item" data-page="classes" onclick="switchPage('classes')">🏫 班级管理</button>
+    <button class="nav-item" data-page="students" onclick="switchPage('students')">👩‍🎓 学生管理</button>
+    <button class="nav-item" data-page="reasoning" onclick="switchPage('reasoning')">🧠 推理记录</button>
+    <button class="nav-item" data-page="analytics" onclick="switchPage('analytics')">📈 学习分析</button>
+    <button class="nav-item" data-page="tasks" onclick="switchPage('tasks')">📋 任务管理</button>
+    <button class="nav-item" data-page="resources" onclick="switchPage('resources')">📚 教学资源</button>
+    <button class="nav-item" data-page="exports" onclick="switchPage('exports')">📦 数据导出</button>
+    <div class="user-card">
+      <div class="avatar" id="userAvatar">师</div>
+      <div>
+        <div class="uname" id="userName"></div>
+        <div class="urole">教师账号</div>
+      </div>
+      <button class="logout-btn" onclick="logout()">退出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- 总览 -->
+    <div class="page active" id="page-overview">
+      <div class="page-title">📊 总览</div>
+      <div class="page-sub">我的班级、学生与教学概览</div>
+      <div class="stat-grid" id="overviewStats"></div>
+      <div class="card">
+        <div class="card-title">🏫 我的班级</div>
+        <div id="overviewClasses"></div>
+      </div>
+    </div>
+
+    <!-- 班级管理 -->
+    <div class="page" id="page-classes">
+      <div class="page-title">🏫 班级管理</div>
+      <div class="page-sub">学校库 → 年级库 → 班级库，为学生绑定班级</div>
+
+      <div class="card">
+        <div class="card-title">➕ 创建学校</div>
+        <div class="form-row">
+          <div class="form-group"><label>学校名称</label><input id="schoolName" placeholder="如：XX市第一中学"></div>
+          <div class="form-group" style="flex:0 0 160px;"><label>&nbsp;</label><button class="btn btn-primary" onclick="createSchool()">创建学校</button></div>
+        </div>
+        <div id="schoolList"></div>
+      </div>
+    </div>
+
+    <!-- 学生管理 -->
+    <div class="page" id="page-students">
+      <div class="between">
+        <div>
+          <div class="page-title">👩‍🎓 学生管理</div>
+          <div class="page-sub">查看学生学习情况，管理账号</div>
+        </div>
+        <div class="flex">
+          <input id="studentSearch" placeholder="搜索学生姓名..." style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;width:200px;" oninput="renderStudents()">
+          <button class="btn btn-primary" onclick="showCreateStudent()">➕ 创建学生</button>
+        </div>
+      </div>
+      <div class="card mt-3">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>姓名</th><th>用户名</th><th>班级</th><th>报告数</th><th>答题正确率</th><th>操作</th></tr></thead>
+            <tbody id="studentTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 推理记录 -->
+    <div class="page" id="page-reasoning">
+      <div class="between">
+        <div>
+          <div class="page-title">🧠 推理记录</div>
+          <div class="page-sub">查看学生模型推理过程（费曼引导 / 五步学习），点击行可展开输出详情</div>
+        </div>
+        <div class="flex">
+          <select id="reasoningStudentSelect" onchange="onReasoningStudentChange()" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+            <option value="">全部学生</option>
+          </select>
+        </div>
+      </div>
+      <div class="stat-grid" id="reasoningStats"></div>
+      <div class="card mt-3">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>学生</th><th>主题</th><th>模式</th><th>模型</th><th>步骤</th><th>状态</th><th>时间</th></tr></thead>
+            <tbody id="reasoningTable"></tbody>
+          </table>
+        </div>
+        <div class="flex between mt-3" id="reasoningPager"></div>
+      </div>
+    </div>
+
+    <!-- 学习分析 -->
+    <div class="page" id="page-analytics">
+      <div class="between">
+        <div>
+          <div class="page-title">📈 学习分析</div>
+          <div class="page-sub">本班学生数据可视化（纯 SVG 图表，仅限我班级内的学生）</div>
+        </div>
+        <div class="flex">
+          <select id="analyticsClassSelect" onchange="loadAnalytics()" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+            <option value="">全部班级</option>
+          </select>
+        </div>
+      </div>
+      <div class="stat-grid" id="analyticsStats"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">📈 掌握度趋势（近14天）</div>
+          <div id="analyticsTrend"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">📊 学科掌握度对比</div>
+          <div id="analyticsSubjects"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔴 薄弱点排行</div>
+          <div id="analyticsWeak"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🧩 知识点掌握度</div>
+          <div id="analyticsConcepts"></div>
+        </div>
+      </div>
+      <div class="card mt-3">
+        <div class="card-title">🏆 学生掌握度排行</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>排名</th><th>学生</th><th>报告数</th><th>平均掌握度</th></tr></thead>
+            <tbody id="analyticsUsers"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务管理 -->
+    <div class="page" id="page-tasks">
+      <div class="between">
+        <div>
+          <div class="page-title">📋 任务管理</div>
+          <div class="page-sub">创建学习任务并分配给班级或学生</div>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateTask()">➕ 创建任务</button>
+      </div>
+      <div class="card mt-3">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>标题</th><th>学科</th><th>类型</th><th>难度</th><th>已分配</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="taskTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 教学资源 -->
+    <div class="page" id="page-resources">
+      <div class="between">
+        <div>
+          <div class="page-title">📚 教学资源</div>
+          <div class="page-sub">教学资源导入 / 评审 / 发布 与 学情驱动备课</div>
+        </div>
+        <select id="resourceSubject" onchange="loadResources()" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+          <option value="">全部学科</option>
+          <option>数学</option><option>物理</option><option>化学</option><option>生物</option>
+          <option>英语</option><option>语文</option><option>历史</option><option>地理</option><option>政治</option>
+        </select>
+      </div>
+
+      <!-- 资源导入工具栏 -->
+      <div class="card mt-3">
+        <div class="card-title">➕ 资源导入</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;"><label>标题</label><input id="resTitle" placeholder="资料标题"></div>
+          <div class="form-group"><label>学科</label>
+            <select id="resSubject"><option>数学</option><option>物理</option><option>化学</option><option>生物</option><option>英语</option><option>语文</option><option>历史</option><option>地理</option><option>政治</option></select>
+          </div>
+          <div class="form-group"><label>章节</label><input id="resChapter" placeholder="如：必修一 第二章"></div>
+        </div>
+        <div class="form-row">
+          <textarea id="resContent" placeholder="粘贴教材/笔记/教案正文...（md/txt 文本）或填写网络 URL 进行采集" style="flex:1;min-height:90px;padding:10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;"></textarea>
+        </div>
+        <div class="flex" style="gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-primary" onclick="doImportText()">📝 粘贴入库</button>
+          <label class="btn btn-outline" style="cursor:pointer;">📁 上传文件（md/txt/html/ppt）
+            <input type="file" id="resFile" accept=".md,.txt,.html,.htm,application/vnd.openxmlformats-officedocument.presentationml.presentation,.ppt,.pptx" onchange="doUpload()" style="display:none;">
+          </label>
+          <input id="resUrl" placeholder="http(s)://... 采集网址" style="flex:0 0 280px;padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;">
+          <button class="btn btn-outline" onclick="doImportWeb()">🌐 网页采集</button>
+        </div>
+      </div>
+
+      <!-- 待评审草稿 -->
+      <div class="card mt-3">
+        <div class="between"><div class="card-title">🗂️ 待评审草稿</div><button class="btn btn-ghost btn-sm" onclick="loadDrafts()">刷新</button></div>
+        <div class="table-wrap"><table><thead><tr><th>标题</th><th>学科</th><th>来源</th><th>状态</th><th>操作</th></tr></thead><tbody id="draftTable"></tbody></table></div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>标题</th><th>学科</th><th>章节</th><th>类型</th><th>难度</th><th>操作</th></tr></thead>
+            <tbody id="resourceTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 学情驱动备课 -->
+      <div class="card mt-3">
+        <div class="between">
+          <div class="card-title">🎯 学情驱动备课</div>
+          <div class="flex">
+            <select id="lessonClassSelect" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;"><option value="">全部班级</option></select>
+            <button class="btn btn-primary" onclick="loadLessonPlan()">分析</button>
+          </div>
+        </div>
+        <div id="lessonPlan"></div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-title">🧩 知识点（可生成任务）</div>
+        <div id="knowledgeNodes"></div>
+      </div>
+    </div>
+
+    <!-- 数据导出 -->
+    <div class="page" id="page-exports">
+      <div class="between">
+        <div>
+          <div class="page-title">📦 数据导出</div>
+          <div class="page-sub">申请导出本班学生数据（需管理员审批后方可下载）</div>
+        </div>
+      </div>
+      <div class="card mt-3">
+        <div class="card-title">➕ 发起导出申请</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>数据类型</label>
+            <select id="expType" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+              <option value="reports">学习报告</option>
+              <option value="reasoning">推理日志</option>
+              <option value="answers">答题记录</option>
+              <option value="concepts">知识点掌握</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>格式</label>
+            <select id="expFmt" style="padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label>用途说明</label>
+            <input id="expReason" placeholder="说明导出用途（管理员审批参考）" style="width:100%;padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;outline:none;">
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button class="btn btn-primary" onclick="requestExport()">提交申请</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--color-text-muted);margin-top:8px;">导出数据范围仅限你名下班级的学生；申请提交后由管理员审批，批准后可下载。</div>
+      </div>
+      <div class="card mt-3">
+        <div class="card-title">📋 我的导出申请</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>类型</th><th>格式</th><th>状态</th><th>审批人</th><th>申请时间</th><th>操作</th></tr></thead>
+            <tbody id="exportTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 学生详情弹窗 -->
+<div class="modal-overlay" id="studentModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="studentModalName"></h3>
+      <button class="modal-close" onclick="closeModal('studentModal')">×</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="reports" onclick="switchStudentTab('reports', this)">📄 学习报告</button>
+      <button class="modal-tab" data-tab="progress" onclick="switchStudentTab('progress', this)">📈 掌握度</button>
+      <button class="modal-tab" data-tab="stats" onclick="switchStudentTab('stats', this)">📊 答题统计</button>
+    </div>
+    <div id="studentTabContent"></div>
+  </div>
+</div>
+
+<!-- 任务分配弹窗 -->
+<div class="modal-overlay" id="taskModal">
+  <div class="modal" style="width:640px;">
+    <div class="modal-head">
+      <h3 id="taskModalTitle"></h3>
+      <button class="modal-close" onclick="closeModal('taskModal')">×</button>
+    </div>
+    <div id="taskModalContent"></div>
+  </div>
+</div>
+
+<!-- 创建任务弹窗 -->
+<div class="modal-overlay" id="createTaskModal">
+  <div class="modal" style="width:620px;">
+    <div class="modal-head">
+      <h3>创建任务</h3>
+      <button class="modal-close" onclick="closeModal('createTaskModal')">×</button>
+    </div>
+    <div class="form-group"><label>任务标题</label><input id="taskTitle" placeholder="如：勾股定理巩固练习"></div>
+    <div class="mt-2 form-group"><label>描述</label><textarea id="taskDesc" rows="2" placeholder="任务说明（可选）"></textarea></div>
+    <div class="form-row mt-3">
+      <div class="form-group"><label>学科</label><select id="taskSubject"><option>数学</option><option>物理</option><option>化学</option><option>生物</option><option>英语</option><option>语文</option></select></div>
+      <div class="form-group"><label>类型</label><select id="taskType"><option value="learn">学习</option><option value="exercise">练习</option><option value="review">复习</option><option value="assignment">作业</option></select></div>
+      <div class="form-group"><label>难度</label><select id="taskDifficulty"><option>基础</option><option>中等</option><option>困难</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>目标分数</label><input id="taskScore" type="number" value="60"></div>
+      <div class="form-group"><label>时限（分钟）</label><input id="taskLimit" type="number" value="30"></div>
+    </div>
+    <div class="mt-3"><button class="btn btn-primary" onclick="createTask()">创建任务</button></div>
+  </div>
+</div>
+
+<!-- 创建学生弹窗 -->
+<div class="modal-overlay" id="createStudentModal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-head">
+      <h3>创建学生账号</h3>
+      <button class="modal-close" onclick="closeModal('createStudentModal')">×</button>
+    </div>
+    <div class="form-group"><label>学生姓名</label><input id="stuName" placeholder="如：李小明"></div>
+    <div class="mt-2 form-group"><label>登录用户名</label><input id="stuUsername" placeholder="留空则用姓名"></div>
+    <div class="mt-2 form-group"><label>初始密码</label><input id="stuPassword" placeholder="至少4位"></div>
+    <div class="mt-3"><button class="btn btn-primary" onclick="createStudent()">创建</button></div>
+  </div>
+</div>
+
+<!-- 班级学生弹窗 -->
+<div class="modal-overlay" id="classModal">
+  <div class="modal" style="width:640px;">
+    <div class="modal-head">
+      <h3 id="classModalTitle"></h3>
+      <button class="modal-close" onclick="closeModal('classModal')">×</button>
+    </div>
+    <div id="classModalContent"></div>
+  </div>
+</div>
+
+<!-- 资源详情弹窗 -->
+<div class="modal-overlay" id="resourceModal">
+  <div class="modal" style="width:700px;">
+    <div class="modal-head">
+      <h3 id="resourceModalTitle"></h3>
+      <button class="modal-close" onclick="closeModal('resourceModal')">×</button>
+    </div>
+    <div id="resourceModalContent"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════ 全局状态 ═══════════
+let ME = null;
+let ALL_DATA = { schools: [], classes: [], students: [], candidates: [], tasks: [], resources: [], nodes: [] };
+let currentStudentId = null;
+
+const $ = id => document.getElementById(id);
+
+// ═══════════ 认证 ═══════════
+async function checkLogin() {
+  try {
+    const r = await fetch('/api/me');
+    const d = await r.json();
+    if (d.success) {
+      ME = d.user;
+      $('loginOverlay').style.display = 'none';
+      $('app').classList.add('active');
+      $('userName').textContent = d.user.name;
+      $('userAvatar').textContent = d.user.name[0];
+      refreshAll();
+      return;
+    }
+  } catch (e) {}
+  $('loginOverlay').style.display = 'flex';
+}
+
+async function doLogin() {
+  const username = $('loginUsername').value.trim();
+  const password = $('loginPassword').value;
+  $('loginError').textContent = '';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const d = await r.json();
+    if (!d.success) { $('loginError').textContent = d.error || '登录失败'; return; }
+    $('loginPassword').value = '';
+    checkLogin();
+  } catch (e) { $('loginError').textContent = '请求失败: ' + e.message; }
+}
+
+async function logout() {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.reload();
+}
+
+// ═══════════ 工具 ═══════════
+async function api(url, method = 'GET', body = null) {
+  const opt = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(url, opt);
+  const d = await r.json();
+  if (!d.success && d.error) toast(d.error);
+  return d;
+}
+function toast(msg) {
+  const old = document.querySelector('.toast-box'); if (old) old.remove();
+  const t = document.createElement('div');
+  t.className = 'toast-box'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function switchPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  $('page-' + page).classList.add('active');
+  document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
+  ({ overview: loadOverview, classes: renderOrg, students: loadStudents, reasoning: loadReasoningPage, analytics: loadAnalytics, tasks: loadTasks, resources: loadResources, exports: loadExports })[page]();
+}
+function closeModal(id) { $(id).classList.remove('active'); }
+
+// ═══════════ 总览 ═══════════
+async function loadOverview() {
+  const d = await api('/api/overview');
+  if (!d.success) return;
+  const s = d;
+  $('overviewStats').innerHTML = `
+    <div class="stat-card"><div class="num">${s.class_count}</div><div class="label">🏫 我的班级</div></div>
+    <div class="stat-card"><div class="num">${s.student_count}</div><div class="label">👩‍🎓 学生总数</div></div>
+    <div class="stat-card"><div class="num">${s.task_total}</div><div class="label">📋 任务总数</div><div class="extra">进行中 ${s.task_active} · 已完成 ${s.task_completed}</div></div>
+    <div class="stat-card"><div class="num">${s.report_count}</div><div class="label">📄 学习报告</div></div>`;
+  const cls = s.classes || [];
+  $('overviewClasses').innerHTML = cls.length ? `
+    <div class="table-wrap"><table>
+      <thead><tr><th>班级</th><th>学校 / 年级</th><th>学生数</th><th>操作</th></tr></thead>
+      <tbody>${cls.map(c => `<tr>
+        <td><b>${esc(c.name)}</b></td>
+        <td class="muted">${esc(c.school_name)} / ${esc(c.grade_name)}</td>
+        <td>${c.student_count} 人</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="openClassModal(${c.id})">查看学生</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div class="empty"><div class="e-icon">🏫</div>还没有班级，去"班级管理"创建吧</div>';
+}
+
+// ═══════════ 组织架构（学校/年级/班级） ═══════════
+async function loadOrg() {
+  const [schools] = await Promise.all([api('/api/schools')]);
+  ALL_DATA.schools = schools.schools || [];
+  ALL_DATA.classes = (await api('/api/classes')).classes || [];
+  renderOrg();
+}
+
+async function createSchool() {
+  const name = $('schoolName').value.trim();
+  if (!name) { toast('请输入学校名称'); return; }
+  const d = await api('/api/schools', 'POST', { name });
+  if (d.success) { $('schoolName').value = ''; toast('学校已创建'); loadOrg(); }
+}
+
+async function createGrade(schoolId) {
+  const name = prompt('请输入年级名称（如：高一）');
+  if (!name) return;
+  const d = await api('/api/grades', 'POST', { school_id: schoolId, name });
+  if (d.success) { toast('年级已创建'); loadOrg(); }
+}
+
+async function createClass(gradeId) {
+  const name = prompt('请输入班级名称（如：高一(1)班）');
+  if (!name) return;
+  const d = await api('/api/classes', 'POST', { grade_id: gradeId, name });
+  if (d.success) { toast('班级已创建'); loadOrg(); }
+}
+
+async function delSchool(id) {
+  if (!confirm('删除学校将同时删除其下所有年级、班级和学生绑定，确认？')) return;
+  const d = await api('/api/schools/' + id, 'DELETE');
+  if (d.success) { toast('已删除'); loadOrg(); }
+}
+async function delGrade(id) {
+  if (!confirm('删除年级将同时删除其下所有班级和学生绑定，确认？')) return;
+  const d = await api('/api/grades/' + id, 'DELETE');
+  if (d.success) { toast('已删除'); loadOrg(); }
+}
+async function delClass(id) {
+  if (!confirm('确认删除该班级？')) return;
+  const d = await api('/api/classes/' + id, 'DELETE');
+  if (d.success) { toast('已删除'); loadOrg(); }
+}
+
+function renderOrg() {
+  const schools = ALL_DATA.schools;
+  $('schoolList').innerHTML = schools.length ? schools.map(s => `
+    <div class="org-block">
+      <div class="org-head">
+        <span>🏫 ${esc(s.name)}</span>
+        <span class="badge badge-blue">${s.grade_count} 年级</span>
+        <span class="badge badge-gray">${s.class_count} 班级</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-ghost btn-sm" onclick="createGrade(${s.id})">➕ 年级</button>
+        <button class="btn btn-danger btn-sm" onclick="delSchool(${s.id})">🗑 删除学校</button>
+      </div>
+      <div class="org-children" id="grades_${s.id}"></div>
+    </div>`).join('') : '<div class="empty"><div class="e-icon">🏫</div>暂无学校，先创建学校吧</div>';
+
+  schools.forEach(s => {
+    const wrap = $('grades_' + s.id);
+    if (!wrap) return;
+    const grades = (ALL_DATA.grades || []).filter(g => g.school_id === s.id);
+    wrap.innerHTML = grades.length ? grades.map(g => `
+      <div class="org-block" style="background:var(--muted);">
+        <div class="org-head" style="background:var(--muted);">
+          <span>📗 ${esc(g.name)}</span>
+          <span class="badge badge-gray">${g.class_count} 班级</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" onclick="createClass(${g.id})">➕ 班级</button>
+          <button class="btn btn-danger btn-sm" onclick="delGrade(${g.id})">🗑 删除年级</button>
+        </div>
+        <div class="org-children">
+          ${ALL_DATA.classes.filter(c => c.grade_id === g.id).map(c => `
+            <div class="org-child">
+              <span>📚 ${esc(c.name)} <span class="badge badge-blue">${c.student_count} 人</span></span>
+              <span>
+                <button class="btn btn-ghost btn-sm" onclick="openClassModal(${c.id})">学生</button>
+                <button class="btn btn-danger btn-sm" onclick="delClass(${c.id})">🗑</button>
+              </span>
+            </div>`).join('') || '<div class="empty" style="padding:12px 0">暂无班级</div>'}
+        </div>
+      </div>`).join('') : '<div class="empty" style="padding:12px 0">暂无年级，点击"➕ 年级"创建</div>';
+  });
+}
+
+async function loadOrgData() {
+  ALL_DATA.grades = (await api('/api/grades')).grades || [];
+}
+
+// ═══════════ 班级学生管理 ═══════════
+async function openClassModal(classId) {
+  const cls = ALL_DATA.classes.find(c => c.id === classId);
+  $('classModalTitle').textContent = `${cls ? cls.school_name + ' / ' + cls.grade_name + ' / ' : ''}${cls ? cls.name : ''}`;
+  $('classModal').classList.add('active');
+  await renderClassModal(classId);
+}
+
+async function renderClassModal(classId) {
+  const d = await api(`/api/classes/${classId}/students`);
+  const members = d.students || [];
+  const cls = ALL_DATA.classes.find(c => c.id === classId);
+  let candidates = ALL_DATA.candidates || [];
+  // 排除已在班里的
+  candidates = candidates.filter(c => !members.some(m => m.id === c.id));
+  $('classModalContent').innerHTML = `
+    <div class="card-title">👩‍🎓 班级学生（${members.length} 人）</div>
+    ${members.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>姓名</th><th>用户名</th><th>正确率</th><th>报告数</th><th>操作</th></tr></thead>
+      <tbody>${members.map(m => `<tr>
+        <td><b>${esc(m.name)}</b></td>
+        <td class="muted">${esc(m.username)}</td>
+        <td>${(m.stats || {}).accuracy || 0}%</td>
+        <td>${m.report_count}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="removeFromClass(${classId}, ${m.id})">移出</button></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="empty">班级还没有学生</div>'}
+    <div class="card-title mt-4">➕ 添加学生到班级</div>
+    <div class="form-row">
+      <div class="form-group">
+        <select id="addStudentSelect">
+          ${candidates.length ? candidates.map(c => `<option value="${c.id}">${esc(c.name)}（${esc(c.username)}）</option>`).join('') : '<option value="">暂无可添加的学生（先创建学生账号）</option>'}
+        </select>
+      </div>
+      <div><button class="btn btn-primary" ${candidates.length ? '' : 'disabled'} onclick="addToClass(${classId})">添加</button></div>
+    </div>`;
+}
+
+async function addToClass(classId) {
+  const sel = $('addStudentSelect');
+  const uid = sel.value;
+  if (!uid) return;
+  const d = await api(`/api/classes/${classId}/students`, 'POST', { user_id: parseInt(uid) });
+  if (d.success) { toast('已加入班级'); renderClassModal(classId); }
+}
+
+async function removeFromClass(classId, userId) {
+  if (!confirm('确认将该学生移出班级？')) return;
+  const d = await api(`/api/classes/${classId}/students/${userId}`, 'DELETE');
+  if (d.success) { toast('已移出'); renderClassModal(classId); }
+}
+
+// ═══════════ 学生管理 ═══════════
+async function loadStudents() {
+  const d = await api('/api/students');
+  if (!d.success) return;
+  ALL_DATA.students = d.students || [];
+  ALL_DATA.candidates = d.candidates || [];
+  renderStudents();
+}
+
+function renderStudents() {
+  const kw = ($('studentSearch') ? $('studentSearch').value.trim() : '').toLowerCase();
+  const list = ALL_DATA.students.filter(s => !kw || (s.name || '').toLowerCase().includes(kw) || (s.username || '').toLowerCase().includes(kw));
+  $('studentTable').innerHTML = list.length ? list.map(s => {
+    const classes = (s.classes || []).map(c => `${c.school_name}-${c.grade_name}-${c.class_name}`).join('、') || '<span class="muted">未分班</span>';
+    return `<tr>
+      <td><b>${esc(s.name)}</b></td>
+      <td class="muted">${esc(s.username)}</td>
+      <td>${classes}</td>
+      <td>${s.report_count}</td>
+      <td><span class="badge ${((s.stats || {}).accuracy || 0) >= 70 ? 'badge-green' : ((s.stats || {}).accuracy || 0) >= 50 ? 'badge-orange' : 'badge-red'}">${(s.stats || {}).accuracy || 0}%</span></td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="viewStudentScores(${s.id}, '${esc(s.name)}')">成绩</button>
+        <button class="btn btn-ghost btn-sm" onclick="openStudentModal(${s.id}, '${esc(s.name)}')">详情</button>
+        <button class="btn btn-ghost btn-sm" onclick="openReasoningForStudent(${s.id}, '${esc(s.name)}')">推理记录</button>
+        <button class="btn btn-ghost btn-sm" onclick="resetPassword(${s.id}, '${esc(s.name)}')">重置密码</button>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6"><div class="empty"><div class="e-icon">👩‍🎓</div>暂无学生，先创建学生或把学生加入班级</div></td></tr>';
+}
+
+function showCreateStudent() { $('createStudentModal').classList.add('active'); }
+
+async function createStudent() {
+  const name = $('stuName').value.trim();
+  const username = $('stuUsername').value.trim();
+  const password = $('stuPassword').value;
+  if (!name || !password) { toast('请填写姓名和密码'); return; }
+  const d = await api('/api/students', 'POST', { name, username, password });
+  if (d.success) {
+    toast('学生账号已创建');
+    $('createStudentModal').classList.remove('active');
+    ['stuName', 'stuUsername', 'stuPassword'].forEach(id => $(id).value = '');
+    loadStudents();
+  }
+}
+
+async function resetPassword(userId, name) {
+  const pwd = prompt(`为学生「${name}」设置新密码：`);
+  if (!pwd) return;
+  const d = await api(`/api/students/${userId}/password`, 'POST', { password: pwd });
+  if (d.success) toast('密码已重置');
+}
+
+// ═══════════ 学生成绩直查 ═══════════
+async function viewStudentScores(userId, name) {
+  const d = await api(`/api/students/${userId}/stats`);
+  const acc = d.accuracy || 0;
+  const modalContent = `
+    <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+      <div class="stat-card"><div class="num">${d.total_answers || 0}</div><div class="label">总答题</div></div>
+      <div class="stat-card"><div class="num" style="color:${acc >= 70 ? 'var(--success)' : acc >= 50 ? 'var(--warning)' : 'var(--destructive)'}">${acc}%</div><div class="label">正确率</div></div>
+      <div class="stat-card"><div class="num">${d.total_sessions || 0}</div><div class="label">学习会话</div></div>
+      <div class="stat-card"><div class="num">${d.total_time_minutes || 0}</div><div class="label">累计分钟</div></div>
+    </div>
+    <div class="mt-3">
+      <div class="card-title">⚠️ 薄弱知识点</div>
+      ${(d.weak_topics || []).length ? d.weak_topics.map(w => `
+        <div class="flex between" style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:13px;">${esc(w.topic)}</span>
+          <span><span class="badge badge-red">错误率 ${Math.round(w.error_rate * 100)}%</span></span>
+        </div>`).join('') : '<div class="empty">暂无薄弱知识点</div>'}
+    </div>`;
+  $('resourceModalTitle').textContent = `📊 成绩 — ${name}`;
+  $('resourceModalContent').innerHTML = modalContent;
+  $('resourceModal').classList.add('active');
+}
+
+// ═══════════ 学生详情 ═══════════
+async function openStudentModal(userId, name) {
+  currentStudentId = userId;
+  $('studentModalName').textContent = `👩‍🎓 ${name}`;
+  $('studentModal').classList.add('active');
+  switchStudentTab('reports', document.querySelector('.modal-tab[data-tab="reports"]'));
+}
+
+async function switchStudentTab(tab, el) {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const uid = currentStudentId;
+  const c = $('studentTabContent');
+  c.innerHTML = '<div class="empty">加载中...</div>';
+
+  if (tab === 'reports') {
+    const d = await api(`/api/students/${uid}/reports`);
+    const reports = d.reports || [];
+    c.innerHTML = reports.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>主题</th><th>学科</th><th>得分</th><th>等级</th><th>时间</th><th>操作</th></tr></thead>
+      <tbody>${reports.map(r => `<tr>
+        <td><b>${esc(r.summary.core_topic || r.topic)}</b></td>
+        <td>${esc(r.summary.subject || '-')}</td>
+        <td><span class="badge badge-blue">${r.summary.score ?? '-'}分</span></td>
+        <td>${esc(r.summary.level || '-')}</td>
+        <td class="muted small">${esc(r.summary.generated_at || r.created_at || '')}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="viewReportDetail(${uid}, ${r.id})">查看</button></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="empty"><div class="e-icon">📄</div>该学生还没有学习报告</div>';
+  } else if (tab === 'progress') {
+    const d = await api(`/api/students/${uid}/progress`);
+    c.innerHTML = `
+      <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+        <div class="stat-card"><div class="num">${d.mastered || 0}</div><div class="label">✅ 已掌握</div></div>
+        <div class="stat-card"><div class="num">${d.learning || 0}</div><div class="label">📖 学习中</div></div>
+        <div class="stat-card"><div class="num">${d.difficult || 0}</div><div class="label">⚠️ 困难</div></div>
+        <div class="stat-card"><div class="num">${d.not_started || 0}</div><div class="label">⬜ 未开始</div></div>
+      </div>
+      <div class="mt-3">${(d.nodes || []).map(n => `
+        <div class="flex between" style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:13px;">${esc(n.name)} <span class="badge badge-gray">${esc(n.category)}</span></span>
+          <span style="width:180px;" class="flex">
+            <div class="bar" style="flex:1;"><div style="width:${(n.understanding || 0) * 100}%"></div></div>
+            <span class="muted small" style="width:90px;text-align:right;">${Math.round((n.understanding || 0) * 100)}% · ${esc(n.state)}</span>
+          </span>
+        </div>`).join('') || '<div class="empty">暂无知识点学习记录</div>'}
+    `;
+  } else if (tab === 'stats') {
+    const d = await api(`/api/students/${uid}/stats`);
+    const acc = d.accuracy || 0;
+    c.innerHTML = `
+      <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+        <div class="stat-card"><div class="num">${d.total_answers || 0}</div><div class="label">总答题</div></div>
+        <div class="stat-card"><div class="num" style="color:${acc >= 70 ? 'var(--success)' : acc >= 50 ? 'var(--warning)' : 'var(--destructive)'}">${acc}%</div><div class="label">正确率</div></div>
+        <div class="stat-card"><div class="num">${d.total_sessions || 0}</div><div class="label">学习会话</div></div>
+        <div class="stat-card"><div class="num">${d.total_time_minutes || 0}</div><div class="label">累计分钟</div></div>
+      </div>
+      <div class="mt-3">
+        <div class="card-title">⚠️ 薄弱知识点</div>
+        ${(d.weak_topics || []).length ? d.weak_topics.map(w => `
+          <div class="flex between" style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:13px;">${esc(w.topic)}</span>
+            <span><span class="badge badge-red">错误率 ${Math.round(w.error_rate * 100)}%</span></span>
+          </div>`).join('') : '<div class="empty">暂无薄弱知识点</div>'}
+      </div>`;
+  }
+}
+
+async function viewReportDetail(userId, reportId) {
+  const d = await api(`/api/students/${userId}/report/${reportId}`);
+  if (!d.success) return;
+  const r = d.report.report || {};
+  const mastery = r.mastery_assessment || {};
+  const steps = (r.teaching_flow || {}).steps_detail || [];
+  const stepNames = ['现象引入', '认知冲突', '思维模型', '自主推导', '费曼测试'];
+  $('resourceModalTitle').textContent = '📄 ' + (r.title || '学习报告');
+  $('resourceModalContent').innerHTML = `
+    <div class="flex" style="gap:14px;margin-bottom:14px;">
+      <div class="stat-card" style="flex:1;"><div class="num">${mastery.score || 0}</div><div class="label">综合评分</div></div>
+      <div class="stat-card" style="flex:1;"><div class="num" style="font-size:18px;">${esc(mastery.level || '-')}</div><div class="label">掌握等级</div></div>
+      <div class="stat-card" style="flex:1;"><div class="num" style="font-size:18px;">${esc(mastery.summary || '')}</div><div class="label">${esc(mastery.emoji || '')}</div></div>
+    </div>
+    <div class="card-title">📚 教学流程</div>
+    ${steps.map((s, i) => `<div class="flex" style="padding:7px 0;border-bottom:1px solid var(--border);">
+      <span class="badge ${s.success ? 'badge-green' : 'badge-gray'}">${s.success ? '✓' : (i + 1)}</span>
+      <span style="font-size:13px;flex:1;"><b>${stepNames[i] || s.name}</b><div class="muted small">${esc(String(s.content || '').substring(0, 120))}...</div></span>
+    </div>`).join('')}
+    <div class="card-title mt-4">⚠️ 薄弱点</div>
+    ${(r.weak_points || []).map(w => `<div class="tag" style="background:var(--destructive-subtle);color:var(--destructive);">${esc(w)}</div>`).join('') || '<span class="muted">无</span>'}
+    <div class="card-title mt-4">💡 下一步建议</div>
+    ${(r.next_steps || []).map(n => `<div class="tag">${esc(n)}</div>`).join('') || '<span class="muted">无</span>'}
+  `;
+  $('resourceModal').classList.add('active');
+}
+
+// ═══════════ 推理记录 ═══════════
+let reasoningUserId = null;       // 当前筛选的学生 id（null = 全部学生）
+let reasoningOffset = 0;
+const REASONING_PAGE_SIZE = 20;
+let REASONING = { items: [], total: 0 };
+
+async function loadReasoningPage() {
+  if (!ALL_DATA.students.length) await loadStudents();
+  renderReasoningStudentSelect();
+  await Promise.all([loadReasoningLogs(), loadReasoningStats()]);
+}
+
+function renderReasoningStudentSelect() {
+  const sel = $('reasoningStudentSelect');
+  sel.innerHTML = '<option value="">全部学生</option>' +
+    ALL_DATA.students.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  sel.value = reasoningUserId ? String(reasoningUserId) : '';
+}
+
+function onReasoningStudentChange() {
+  const v = $('reasoningStudentSelect').value;
+  reasoningUserId = v ? parseInt(v) : null;
+  reasoningOffset = 0;
+  loadReasoningLogs();
+  loadReasoningStats();
+}
+
+// 从学生管理/学生详情弹窗跳转过来，带学生筛选
+function openReasoningForStudent(userId) {
+  closeModal('studentModal');
+  reasoningUserId = userId;
+  reasoningOffset = 0;
+  switchPage('reasoning');
+}
+
+function reasoningFromStudentModal() {
+  const uid = currentStudentId;
+  if (!uid) return;
+  closeModal('studentModal');
+  reasoningUserId = uid;
+  reasoningOffset = 0;
+  switchPage('reasoning');
+}
+
+async function loadReasoningLogs() {
+  const q = new URLSearchParams({ limit: REASONING_PAGE_SIZE, offset: reasoningOffset });
+  if (reasoningUserId) q.set('user_id', reasoningUserId);
+  const d = await api('/api/teacher/reasoning-logs?' + q.toString());
+  if (!d.success) return;
+  REASONING = { items: d.items || [], total: d.total || 0 };
+  renderReasoningTable();
+}
+
+function renderReasoningTable() {
+  const items = REASONING.items;
+  const modeMap = { feynman: ['费曼引导', 'badge-blue'], chat: ['对话', 'badge-gray'] };
+  const statusMap = { success: ['成功', 'badge-green'], error: ['失败', 'badge-red'] };
+  if (!items.length) {
+    $('reasoningTable').innerHTML = '<tr><td colspan="7"><div class="empty"><div class="e-icon">🧠</div>暂无推理记录</div></td></tr>';
+  } else {
+    $('reasoningTable').innerHTML = items.map((it, i) => {
+      const m = modeMap[it.mode] || [it.mode || '—', 'badge-gray'];
+      const st = statusMap[it.status] || [it.status || '—', 'badge-gray'];
+      const stepName = it.step_name || (it.step_order ? '第' + it.step_order + '步' : '—');
+      return `
+        <tr class="reasoning-row" style="cursor:pointer;" onclick="toggleReasoningDetail(${i})">
+          <td><b>${esc(it.student_name || '匿名')}</b></td>
+          <td>${esc(it.topic || '—')}</td>
+          <td><span class="badge ${m[1]}">${m[0]}</span></td>
+          <td class="muted">${esc(it.model_used || '—')}</td>
+          <td>${esc(stepName)}</td>
+          <td><span class="badge ${st[1]}">${st[0]}</span></td>
+          <td class="muted small">${esc(it.created_at || '')}</td>
+        </tr>
+        <tr class="reasoning-detail" id="reasoningDetail_${i}" style="display:none;">
+          <td colspan="7">
+            <div class="flex between" style="gap:8px;margin-bottom:8px;">
+              <span class="muted small">会话 ${esc(it.session_id || '—')} · 耗时 ${it.latency_ms ? it.latency_ms + ' ms' : '—'}</span>
+              <button class="btn btn-ghost btn-sm" onclick="toggleReasoningDetail(${i})">收起</button>
+            </div>
+            ${it.prompt ? `<div class="card-title" style="font-size:13px;">📥 输入提示词</div><div class="reasoning-block">${esc(it.prompt)}</div>` : ''}
+            ${it.output ? `<div class="card-title mt-2" style="font-size:13px;">📤 模型输出</div><div class="reasoning-block">${esc(it.output)}</div>` : ''}
+          </td>
+        </tr>`;
+    }).join('');
+  }
+  // 分页
+  const totalPages = Math.max(1, Math.ceil(REASONING.total / REASONING_PAGE_SIZE));
+  const curPage = Math.floor(reasoningOffset / REASONING_PAGE_SIZE) + 1;
+  $('reasoningPager').innerHTML = `
+    <span class="muted small">共 ${REASONING.total} 条记录</span>
+    <div class="flex">
+      <button class="btn btn-ghost btn-sm" ${reasoningOffset <= 0 ? 'disabled' : ''} onclick="reasoningPage(-1)">上一页</button>
+      <span class="small muted" style="padding:0 10px;">${curPage} / ${totalPages}</span>
+      <button class="btn btn-ghost btn-sm" ${reasoningOffset + REASONING_PAGE_SIZE >= REASONING.total ? 'disabled' : ''} onclick="reasoningPage(1)">下一页</button>
+    </div>`;
+}
+
+function toggleReasoningDetail(i) {
+  const row = $('reasoningDetail_' + i);
+  if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function reasoningPage(dir) {
+  reasoningOffset = Math.max(0, reasoningOffset + dir * REASONING_PAGE_SIZE);
+  loadReasoningLogs();
+}
+
+async function loadReasoningStats() {
+  const d = await api('/api/teacher/reasoning-logs/stats?days=7');
+  if (!d.success) return;
+  const top3 = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const models = top3(d.by_model || {});
+  const steps = top3(d.by_step || {});
+  $('reasoningStats').innerHTML = `
+    <div class="stat-card"><div class="num">${d.total}</div><div class="label">🧠 近7天推理</div></div>
+    <div class="stat-card"><div class="num" style="font-size:18px;">${models.length ? models.map(([k, v]) => `${esc(k)} ${v}`).join(' · ') : '—'}</div><div class="label">🤖 模型分布</div></div>
+    <div class="stat-card"><div class="num" style="font-size:18px;">${steps.length ? steps.map(([k, v]) => `${esc(k)} ${v}`).join(' · ') : '—'}</div><div class="label">🪜 步骤分布</div></div>
+    <div class="stat-card"><div class="num">${d.avg_latency_ms || 0}ms</div><div class="label">⚡ 平均耗时</div></div>
+    <div class="stat-card"><div class="num" style="color:${d.error_count ? 'var(--destructive)' : 'var(--success)'}">${d.error_count}</div><div class="label">⚠️ 失败次数</div></div>`;
+}
+
+// ═══════════ 任务管理 ═══════════
+async function loadTasks() {
+  const d = await api('/api/tasks');
+  if (!d.success) return;
+  ALL_DATA.tasks = d.tasks || [];
+  $('taskTable').innerHTML = ALL_DATA.tasks.length ? ALL_DATA.tasks.map(t => `
+    <tr>
+      <td><b>${esc(t.title)}</b></td>
+      <td>${esc(t.subject)}</td>
+      <td><span class="badge badge-blue">${({learn:'学习',exercise:'练习',review:'复习',assignment:'作业'})[t.task_type] || t.task_type}</span></td>
+      <td>${esc(t.difficulty)}</td>
+      <td>${t.assignment_count} 人</td>
+      <td><span class="badge ${t.status === 'active' ? 'badge-green' : t.status === 'draft' ? 'badge-gray' : 'badge-blue'}">${({draft:'草稿',active:'进行中',completed:'已完成',archived:'已归档'})[t.status] || t.status}</span></td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="openAssignModal(${t.id}, '${esc(t.title)}')">分配</button>
+        <button class="btn btn-ghost btn-sm" onclick="openTaskDetail(${t.id}, '${esc(t.title)}')">完成情况</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="7"><div class="empty"><div class="e-icon">📋</div>还没有任务，点击"创建任务"开始</div></td></tr>';
+}
+
+function showCreateTask() { $('createTaskModal').classList.add('active'); }
+
+async function createTask() {
+  const title = $('taskTitle').value.trim();
+  const subject = $('taskSubject').value;
+  if (!title) { toast('请输入任务标题'); return; }
+  const d = await api('/api/tasks', 'POST', {
+    title,
+    subject,
+    description: $('taskDesc').value.trim(),
+    task_type: $('taskType').value,
+    difficulty: $('taskDifficulty').value,
+    target_score: parseInt($('taskScore').value || 60),
+    time_limit: parseInt($('taskLimit').value || 30),
+  });
+  if (d.success) {
+    toast('任务已创建');
+    $('createTaskModal').classList.remove('active');
+    $('taskTitle').value = ''; $('taskDesc').value = '';
+    loadTasks();
+  }
+}
+
+async function openAssignModal(taskId, title) {
+  $('taskModalTitle').textContent = '📋 分配任务：' + title;
+  $('taskModal').classList.add('active');
+  const classes = ALL_DATA.classes || [];
+  const students = ALL_DATA.students || [];
+  $('taskModalContent').innerHTML = `
+    <div class="card-title">🏫 按班级分配</div>
+    <div class="form-row">
+      <div class="form-group"><select id="assignClass">
+        ${classes.length ? classes.map(c => `<option value="${c.id}">${esc(c.school_name)} / ${esc(c.grade_name)} / ${esc(c.name)}（${c.student_count}人）</option>`).join('') : '<option value="">暂无可分配班级</option>'}
+      </select></div>
+      <div><button class="btn btn-primary" onclick="assignByClass(${taskId})">分配给全班</button></div>
+    </div>
+    <div class="card-title mt-4">👩‍🎓 按学生分配</div>
+    <div class="form-row">
+      <div class="form-group"><select id="assignStudent">
+        ${students.length ? students.map(s => `<option value="${s.id}">${esc(s.name)}（${esc(s.username)}）</option>`).join('') : '<option value="">暂无学生</option>'}
+      </select></div>
+      <div><button class="btn btn-ghost" onclick="assignByStudent(${taskId})">分配给该学生</button></div>
+    </div>
+    <div class="card-title mt-4">📋 已分配名单</div>
+    <div id="assignList">加载中...</div>`;
+  loadAssignments(taskId);
+}
+
+async function assignByClass(taskId) {
+  const classId = parseInt($('assignClass').value);
+  if (!classId) { toast('暂无可分配班级'); return; }
+  const d = await api(`/api/tasks/${taskId}/assign`, 'POST', { class_id: classId });
+  if (d.success) { toast(`已分配给全班 ${d.assigned_count} 人`); loadAssignments(taskId); }
+}
+
+async function assignByStudent(taskId) {
+  const uid = parseInt($('assignStudent').value);
+  if (!uid) { toast('暂无学生'); return; }
+  const d = await api(`/api/tasks/${taskId}/assign`, 'POST', { user_ids: [uid] });
+  if (d.success) { toast('已分配'); loadAssignments(taskId); }
+}
+
+async function loadAssignments(taskId) {
+  const d = await api(`/api/tasks/${taskId}/assignments`);
+  const rows = d.assignments || [];
+  $('assignList').innerHTML = rows.length ? `<div class="table-wrap"><table>
+    <thead><tr><th>学生</th><th>状态</th><th>得分</th><th>用时</th></tr></thead>
+    <tbody>${rows.map(a => `<tr>
+      <td><b>${esc(a.user_name)}</b></td>
+      <td><span class="badge ${a.status === 'completed' ? 'badge-green' : a.status === 'in_progress' ? 'badge-orange' : a.status === 'skipped' ? 'badge-red' : 'badge-gray'}">${({assigned:'已分配',in_progress:'进行中',completed:'已完成',skipped:'已跳过'})[a.status] || a.status}</span></td>
+      <td>${a.score ?? '-'}</td>
+      <td>${a.time_spent ? Math.round(a.time_spent / 60) + ' 分钟' : '-'}</td>
+    </tr>`).join('')}</tbody></table></div>` : '<div class="empty">还没有分配</div>';
+}
+
+async function openTaskDetail(taskId, title) {
+  $('taskModalTitle').textContent = '📋 完成情况：' + title;
+  $('taskModal').classList.add('active');
+  $('taskModalContent').innerHTML = '<div class="empty">加载中...</div>';
+  loadAssignments(taskId);
+}
+
+// ═══════════ 教学资源 ═══════════
+async function loadResources() {
+  const subject = $('resourceSubject').value;
+  const d = await api('/api/resources?subject=' + encodeURIComponent(subject));
+  if (!d.success) return;
+  ALL_DATA.resources = d.resources || [];
+  $('resourceTable').innerHTML = ALL_DATA.resources.length ? ALL_DATA.resources.map(r => `
+    <tr>
+      <td><b>${esc(r.title)}</b></td>
+      <td>${esc(r.subject)}</td>
+      <td class="muted">${esc(r.chapter)}</td>
+      <td><span class="badge badge-gray">${esc(r.content_type)}</span></td>
+      <td>${esc(r.difficulty)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openResourceDetail(${r.id}, '${esc(r.title)}')">查看</button></td>
+    </tr>`).join('') : '<tr><td colspan="6"><div class="empty"><div class="e-icon">📚</div>暂无教学内容</div></td></tr>';
+
+  await loadDrafts();
+  // 备课班级下拉（懒加载一次）
+  if (!$('lessonClassSelect').dataset.loaded) {
+    try { const cls = (await api('/api/classes')).classes || []; $('lessonClassSelect').innerHTML = '<option value="">全部班级</option>' + cls.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join(''); } catch(e) {}
+    $('lessonClassSelect').dataset.loaded = '1';
+  }
+  await loadLessonPlan();
+
+  const nodes = (await api('/api/knowledge-nodes')).nodes || [];
+
+  ALL_DATA.nodes = nodes;
+  $('knowledgeNodes').innerHTML = nodes.length ? `<div class="flex" style="flex-wrap:wrap;gap:8px;">
+    ${nodes.map(n => `<button class="tag" style="cursor:pointer;" onclick="generateTaskFromNode('${n.id}', '${esc(n.name)}')">📗 ${esc(n.name)} <span class="muted">(${esc(n.category)})</span></button>`).join('')}
+  </div><div class="muted small mt-2">点击知识点可自动生成对应学习任务</div>` : '<div class="empty">暂无知识点</div>';
+}
+
+async function openResourceDetail(id, title) {
+  $('resourceModalTitle').textContent = '📚 ' + title;
+  const d = await api('/api/resources/' + id);
+  if (!d.success) return;
+  const r = d.resource;
+  $('resourceModalContent').innerHTML = `
+    <div class="flex" style="flex-wrap:wrap;gap:8px;">
+      <span class="tag">学科：${esc(r.subject)}</span>
+      <span class="tag">章节：${esc(r.chapter)}</span>
+      <span class="tag">类型：${esc(r.content_type)}</span>
+      <span class="tag">难度：${esc(r.difficulty)}</span>
+      <span class="tag">年级：${esc(r.grade)}</span>
+    </div>
+    <div class="card-title mt-3">🎯 学习目标</div>
+    <div class="muted small">${esc(r.learning_objectives || '无')}</div>
+    <div class="card-title mt-3">📖 正文</div>
+    <div class="resource-content">${esc(r.content)}</div>
+    ${r.keywords ? `<div class="card-title mt-3">🔑 关键词</div><div>${r.keywords.split(/[,，]/).map(k => `<span class="tag">${esc(k)}</span>`).join('')}</div>` : ''}
+  `;
+  $('resourceModal').classList.add('active');
+}
+
+async function generateTaskFromNode(nodeId, name) {
+  const subject = prompt(`为知识点「${name}」生成任务，请输入学科（如：数学）：`) || '数学';
+  const d = await api('/api/tasks/generate', 'POST', { node_id: nodeId, subject });
+  if (d.success) {
+    toast(`已生成任务「${d.title}」（含 ${d.question_count} 道题）`);
+    loadTasks();
+  }
+}
+
+// ═══════════ 教学资源导入 / 评审 / 备课 ═══════════
+function _resMeta() {
+  return {
+    subject: $('resSubject').value,
+    chapter: $('resChapter').value.trim(),
+    title: $('resTitle').value.trim(),
+  };
+}
+
+async function doImportText() {
+  const meta = _resMeta();
+  const content = $('resContent').value.trim();
+  if (!content) return toast('请输入要导入的文本内容');
+  const d = await api('/api/resources/import-text', 'POST', { ...meta, content });
+  if (d.success) { toast('已入库（草稿），可在下方评审发布'); $('resContent').value=''; $('resTitle').value=''; loadDrafts(); loadResources(); }
+  else toast(d.error || '导入失败');
+}
+
+async function doImportWeb() {
+  const url = $('resUrl').value.trim();
+  if (!url) return toast('请输入要采集的网址');
+  const meta = _resMeta();
+  const d = await api('/api/resources/import-web', 'POST', { ...meta, url });
+  if (d.success) { toast(`已采集入库（${d.word_count} 字）`); $('resUrl').value=''; loadDrafts(); }
+  else toast(d.error || '采集失败');
+}
+
+async function doUpload() {
+  const f = $('resFile').files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('subject', _resMeta().subject);
+  fd.append('chapter', _resMeta().chapter);
+  fd.append('title', _resMeta().title);
+  const r = await fetch('/api/resources/upload', { method: 'POST', body: fd });
+  let d = {}; try { d = await r.json(); } catch(e) {}
+  if (d.success) { toast('文件已解析入库（草稿）'); $('resFile').value=''; loadDrafts(); }
+  else toast(d.error || '上传解析失败');
+}
+
+async function loadDrafts() {
+  const d = await api('/api/resources/drafts');
+  if (!d.success) return;
+  $('draftTable').innerHTML = d.drafts.length ? d.drafts.map(dr => `
+    <tr>
+      <td><b>${esc(dr.title)}</b></td>
+      <td>${esc(dr.subject)}</td>
+      <td class="muted">${esc(dr.source_type || dr.source || '')}</td>
+      <td><span class="badge ${dr.status==='published'?'badge-green':dr.status==='reviewed'?'badge-blue':'badge-gray'}">${esc(dr.status)}</span></td>
+      <td class="flex" style="gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="openResourceDetail(${dr.id}, '${esc(dr.title)}')">查看</button>
+        <button class="btn btn-ghost btn-sm" onclick="reviewResource(${dr.id}, 'published', '${esc(dr.title)}')">发布</button>
+        <button class="btn btn-ghost btn-sm" onclick="reviewResource(${dr.id}, 'reviewed', '${esc(dr.title)}')">评审</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteResource(${dr.id}, '${esc(dr.title)}')">删</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="5"><div class="empty"><div class="e-icon">🗂️</div>暂无待评审草稿</div></td></tr>';
+}
+
+async function reviewResource(id, status, title) {
+  const oc = prompt(`为「${title}」补充常见错误（可选，回车跳过）：`, '');
+  const pre = prompt(`补充前置知识（可选，回车跳过）：`, '');
+  const d = await api(`/api/resources/${id}/review`, 'PUT', { status, common_mistakes: oc || '', prerequisites: pre || '' });
+  if (d.success) { toast(`已${status==='published'?'发布':'评审'}「${title}」`); loadDrafts(); loadResources(); }
+  else toast(d.error || '操作失败');
+}
+
+async function deleteResource(id, title) {
+  if (!confirm(`确定删除「${title}」？`)) return;
+  const d = await api('/api/resources/' + id, 'DELETE');
+  if (d.success) { toast('已删除'); loadDrafts(); loadResources(); }
+  else toast(d.error || '删除失败');
+}
+
+async function loadLessonPlan() {
+  const cid = $('lessonClassSelect').value;
+  const d = await api('/api/lesson/plan?class_id=' + cid);
+  if (!d.success) return toast(d.error || '加载失败');
+  const plan = d.weak_nodes || [];
+  $('lessonPlan').innerHTML = plan.length ? plan.map(w => `
+    <div class="card-list-item">
+      <div class="between">
+        <div><b>📘 ${esc(w.name)}</b> <span class="muted">薄弱（掌握度 ${w.avg_mastery}）· 涉及 ${w.students} 人</span></div>
+      </div>
+      ${w.materials && w.materials.length ? `<div class="muted small mt-1">推荐素材：${w.materials.map(m => `<span class="tag">${esc(m.title)}</span>`).join(' ')}</div>` : `<div class="muted small mt-1">暂无匹配素材，可先通过上方导入补充。</div>`}
+    </div>`).join('') : '<div class="empty"><div class="e-icon">🎯</div>暂无薄弱知识点（学生答题数据较少）</div>';
+}
+
+// ═══════════ 学习分析（本班学生 SVG 图表） ═══════════
+let ALL_CLASSES = [];
+
+async function loadAnalytics() {
+  try {
+    if (!ALL_CLASSES.length) ALL_CLASSES = (await api('/api/classes')).classes || [];
+    const sel = $('analyticsClassSelect');
+    const current = sel.value;
+    sel.innerHTML = `<option value="">全部班级</option>` + ALL_CLASSES.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    sel.value = current;
+
+    const [ov, trend, subjects, weak, concepts, users] = await Promise.all([
+      api('/api/analytics/overview'),
+      api('/api/analytics/trend?limit=14'),
+      api('/api/analytics/subjects'),
+      api('/api/analytics/weakpoints?limit=8'),
+      api('/api/analytics/concepts?limit=24'),
+      api('/api/analytics/users'),
+    ]);
+    const ovd = ov.data || {};
+    const trendD = trend.data || [];
+    const subjD = subjects.data || [];
+    const weakD = weak.data || [];
+    const concD = concepts.data || [];
+    const userD = users.data || [];
+
+    $('analyticsStats').innerHTML = `
+      <div class="stat-card"><div class="num">${ovd.students}</div><div class="label">本班学生</div></div>
+      <div class="stat-card"><div class="num">${ovd.reports}</div><div class="label">学习报告</div></div>
+      <div class="stat-card"><div class="num">${ovd.avg_mastery}%</div><div class="label">平均掌握度</div></div>
+      <div class="stat-card"><div class="num">${ovd.correct_rate}%</div><div class="label">答题正确率</div></div>`;
+
+    // 趋势折线
+    if (trendD.length) {
+      const W = 560, H = 190, pad = 32;
+      const max = Math.max(...trendD.map(d => d.avg), 10);
+      const min = Math.min(...trendD.map(d => d.avg), 0);
+      const span = (max - min) || 1;
+      const x = i => pad + (W - pad * 2) * i / (trendD.length - 1);
+      const y = v => H - pad - ((v - min) / span) * (H - pad * 2);
+      const pts = trendD.map((d, i) => x(i) + ',' + y(d.avg)).join(' ');
+      let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:560px">`;
+      svg += `<line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="var(--border)" stroke-width="1"/>`;
+      svg += `<polyline fill="none" stroke="var(--primary)" stroke-width="2.5" points="${pts}"/>`;
+      trendD.forEach((d, i) => {
+        if (i % Math.ceil(trendD.length / 7) === 0 || i === trendD.length - 1) {
+          svg += `<circle cx="${x(i)}" cy="${y(d.avg)}" r="3.5" fill="var(--primary)"/>`;
+          svg += `<text x="${x(i)}" y="${H - 12}" text-anchor="middle" fill="var(--color-text-muted)" font-size="10">${esc(String(d.date).slice(5))}</text>`;
+        }
+      });
+      svg += `<text x="6" y="${y(trendD[trendD.length - 1].avg) - 6}" fill="var(--success)" font-size="11">${trendD[trendD.length - 1].avg}%</text>`;
+      svg += '</svg>';
+      $('analyticsTrend').innerHTML = svg;
+    } else {
+      $('analyticsTrend').innerHTML = '<div class="empty">暂无报告数据</div>';
+    }
+
+    // 学科条形
+    if (subjD.length) {
+      const max = Math.max(...subjD.map(s => s.avg), 10);
+      const bw = Math.min(60, (560 - 60) / subjD.length);
+      let svg = '<svg viewBox="0 0 560 200" width="100%" style="max-width:560px">';
+      subjD.forEach((s, i) => {
+        const h = Math.max(4, (s.avg / max) * 120);
+        const bx = 40 + i * (bw + 22), by = 170 - h;
+        svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${h}" rx="6" fill="var(--primary)" opacity="${0.5 + 0.5 * i / subjD.length}"/>`;
+        svg += `<text x="${bx + bw / 2}" y="${by - 6}" text-anchor="middle" fill="var(--success)" font-size="11">${s.avg}%</text>`;
+        svg += `<text x="${bx + bw / 2}" y="192" text-anchor="middle" fill="var(--color-text-muted)" font-size="10">${esc(s.subject)}</text>`;
+        svg += `<text x="${bx + bw / 2}" y="182" text-anchor="middle" fill="var(--color-text-muted)" font-size="9">${s.count}次</text>`;
+      });
+      svg += '</svg>';
+      $('analyticsSubjects').innerHTML = svg;
+    } else {
+      $('analyticsSubjects').innerHTML = '<div class="empty">暂无数据</div>';
+    }
+
+    // 薄弱点
+    $('analyticsWeak').innerHTML = weakD.length ? weakD.map(w => `
+      <div class="weak-row">
+        <span class="tag ${w.severity === '高' ? 'tag-red' : w.severity === '中' ? 'tag-amber' : 'tag-green'}">${esc(w.severity)}</span>
+        <span style="flex:1;color:var(--color-text-secondary);font-size:13px;">${esc(w.text)}</span>
+        <span style="font-family:monospace;color:var(--primary);">×${w.count}</span>
+      </div>`).join('') : '<div class="empty">暂无薄弱点数据</div>';
+
+    // 知识点热力
+    $('analyticsConcepts').innerHTML = concD.length ? `<div class="heat-grid">
+      ${concD.map(c => {
+        const col = c.value >= 70 ? 'rgba(22,163,74,.13)' : c.value >= 45 ? 'rgba(245,158,11,.12)' : 'rgba(239,68,68,.11)';
+        const tx = c.value >= 70 ? 'var(--success)' : c.value >= 45 ? 'var(--warning)' : 'var(--destructive)';
+        return `<div class="heat-cell" style="background:${col}">
+          <b style="color:${tx}">${c.value}%</b><span>${esc(c.name)}</span></div>`;
+      }).join('')}</div>` : '<div class="empty">暂无知识点数据</div>';
+
+    // 学生排行
+    $('analyticsUsers').innerHTML = userD.length ? userD.map((u, i) => `
+      <tr>
+        <td>${i + 1}${i < 3 ? ' 🏆' : ''}</td>
+        <td><b>${esc(u.name)}</b></td>
+        <td>${u.report_count}</td>
+        <td><span class="tag ${u.avg_score >= 80 ? 'tag-green' : u.avg_score >= 60 ? 'tag-amber' : 'tag-red'}">${u.avg_score}%</span></td>
+      </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无学习记录</td></tr>';
+  } catch (e) {
+    $('analyticsTrend').innerHTML = `<div class="empty">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+// ═══════════ 数据导出（申请 → 审批 → 下载） ═══════════
+const EXPORT_TYPE_NAMES = { reports: '学习报告', reasoning: '推理日志', answers: '答题记录', users: '用户数据', concepts: '知识点掌握' };
+
+async function loadExports() {
+  try {
+    const d = await api('/api/exports');
+    const exports = d.exports || [];
+    $('exportTable').innerHTML = exports.map(e => {
+      const st = e.status === 'approved' ? '<span class="tag tag-green">已批准</span>'
+        : e.status === 'rejected' ? '<span class="tag tag-red">已拒绝</span>' : '<span class="tag tag-amber">待审批</span>';
+      let op = '-';
+      if (e.status === 'approved' && e.can_download) {
+        op = `<a class="btn btn-ghost btn-sm" href="/api/exports/${e.id}/download" target="_blank">⬇ 下载</a>`;
+      }
+      return `<tr>
+        <td>${e.id}</td>
+        <td>${EXPORT_TYPE_NAMES[e.export_type] || e.export_type}</td>
+        <td>${e.format.toUpperCase()}</td>
+        <td>${st}</td>
+        <td>${esc(e.approver_name || '-')}</td>
+        <td>${esc(e.created_at || '-')}</td>
+        <td>${op}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="empty">暂无导出申请</td></tr>';
+  } catch (e) {
+    $('exportTable').innerHTML = `<tr><td colspan="7" class="empty">加载失败: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function requestExport() {
+  const exportType = $('expType').value;
+  const format = $('expFmt').value;
+  const reason = $('expReason').value;
+  try {
+    const d = await api('/api/exports', 'POST', { export_type: exportType, format, reason });
+    toast(d.message || '✅ 申请已提交');
+    $('expReason').value = '';
+    loadExports();
+  } catch (e) { toast('❌ ' + e.message); }
+}
+
+// ═══════════ 初始化 ═══════════
+async function refreshAll() {
+  ALL_DATA.grades = (await api('/api/grades')).grades || [];
+  await loadOrgData();
+  await loadStudents();
+  await loadTasks();
+  await loadResources();
+  const active = document.querySelector('.nav-item.active');
+  const page = active ? active.dataset.page : 'overview';
+  ({ overview: loadOverview, classes: renderOrg, students: loadStudents, reasoning: loadReasoningPage, analytics: loadAnalytics, tasks: loadTasks, resources: loadResources, exports: loadExports })[page]();
+}
+
+checkLogin();
+</script>
+</body>
+</html>

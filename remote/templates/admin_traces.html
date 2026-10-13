@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LumiLearn Admin · 调用链追踪</title>
+<link rel="stylesheet" href="/static/ui/lumi.css">
+<link rel="stylesheet" href="/static/ui/icons.css">
+<style>
+  .topbar .tools{display:flex;align-items:center;gap:10px}
+  .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+  .filters input[type=text]{flex:1;min-width:220px;height:34px;border-radius:8px;
+    border:1px solid var(--color-border);background:var(--card);color:var(--color-text);padding:0 10px;font-size:13px}
+  select{height:34px;border-radius:8px;border:1px solid var(--color-border);
+    background:var(--card);color:var(--color-text);padding:0 8px;font-size:13px}
+  .empty{text-align:center;color:var(--color-text-muted);font-size:13px;padding:26px 0}
+  .link-btn{border:none;background:none;color:var(--color-text);font:inherit;cursor:pointer;
+    padding:0;text-align:left;border-bottom:1px dashed var(--color-border)}
+  .link-btn:hover{color:var(--primary);border-bottom-color:var(--primary)}
+  .detail-row td{background:var(--muted)}
+  .detail-cell{padding:14px 16px!important}
+  .call-row{padding:10px 0;border-bottom:1px solid var(--color-border)}
+  .call-row:last-child{border-bottom:none}
+  .call-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:13px}
+  .pager{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:13px}
+  .text-danger{color:var(--destructive-text)}
+  .text-success{color:var(--success-text)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="app-sidebar" id="appSidebar"></aside>
+  <main class="app-main">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">管理控制台 · 可观测性</div>
+        <h1>Agent 调用链追踪</h1>
+        <p class="muted small mt-1">每次 Agent 调用落一条记录；trace 结束时写入一条汇总记录（agent_id 为 __trace_summary__）。点击 trace_id 展开该调用链全部明细。</p>
+      </div>
+      <div class="tools">
+        <span class="pill" id="traceCount">共 — 条</span>
+        <button class="btn sm" id="refreshBtn" type="button"><i class="icon icon-16 icon-chevrons-down-up"></i> 刷新</button>
+      </div>
+    </div>
+
+    <div id="alertHost"></div>
+
+    <section class="card">
+      <div class="filters">
+        <input type="text" id="traceIdFilter" placeholder="按 trace_id 过滤（留空=全部）" autocomplete="off">
+        <select id="limitSel" aria-label="每页条数">
+          <option value="10">10 条/页</option>
+          <option value="20">20 条/页</option>
+          <option value="50" selected>50 条/页</option>
+          <option value="100">100 条/页</option>
+          <option value="200">200 条/页</option>
+        </select>
+        <button class="btn sm" id="queryBtn" type="button"><i class="icon icon-16 icon-search"></i> 查询</button>
+        <button class="btn sm" id="resetBtn" type="button">重置</button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>trace_id</th><th>主题</th><th>用户</th><th>Agent</th><th>模型</th>
+              <th>耗时</th><th>tokens</th><th>成功</th><th>状态</th><th>时间</th>
+            </tr>
+          </thead>
+          <tbody id="traceBody"><tr><td colspan="10"><div class="empty">加载中…</div></td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="pager" id="pager">
+        <button class="btn sm" id="prevBtn" type="button">← 上一页</button>
+        <span class="muted small" id="pageInfo">—</span>
+        <button class="btn sm" id="nextBtn" type="button">下一页 →</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/ui/admin.js"></script>
+<script>
+(function () {
+  var E = LLA.esc, I = LLA.icon;
+
+  var state = { page: 0, pageSize: 50, traceId: "", total: 0, loaded: {} };
+
+  function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+  function successPill(ok) {
+    return ok
+      ? '<span class="pill green">成功</span>'
+      : '<span class="pill red">失败</span>';
+  }
+  function statusPill(s) {
+    var v = s || "";
+    var cls = v === "completed" ? "blue"
+            : (v === "failed" || v === "error" ? "red" : (v ? "amber" : ""));
+    return '<span class="pill ' + cls + '">' + E(v || "—") + '</span>';
+  }
+  function tokensOf(t) { return Number(t.input_tokens || 0) + Number(t.output_tokens || 0); }
+
+  function placeholders() {
+    document.getElementById("traceBody").innerHTML =
+      '<tr><td colspan="10"><div class="empty">未登录或无数据</div></td></tr>';
+    setText("traceCount", "共 — 条");
+    setText("pageInfo", "—");
+    document.getElementById("prevBtn").disabled = true;
+    document.getElementById("nextBtn").disabled = true;
+  }
+
+  /* ---------- 列表 ---------- */
+  function loadTraces() {
+    var body = document.getElementById("traceBody");
+    body.innerHTML = '<tr><td colspan="10"><div class="empty">加载中…</div></td></tr>';
+    var params = "?limit=" + state.pageSize + "&offset=" + (state.page * state.pageSize);
+    if (state.traceId) params += "&trace_id=" + encodeURIComponent(state.traceId);
+
+    return LLA.get("/traces" + params).then(function (data) {
+      var traces = (data && data.traces) || [];
+      var total = (data && data.total) || 0;
+      state.total = total;
+      state.loaded = {};
+
+      setText("traceCount", "共 " + total + " 条");
+
+      if (!traces.length) {
+        body.innerHTML = '<tr><td colspan="10"><div class="empty">暂无调用链记录</div></td></tr>';
+      } else {
+        body.innerHTML = traces.map(function (t, i) {
+          return '<tr>' +
+            '<td><button class="link-btn mono small" type="button" data-trace="' + E(t.trace_id) + '" data-idx="' + i + '">' + E(t.trace_id) + '</button></td>' +
+            '<td style="max-width:200px;word-break:break-all">' + E(t.topic || "—") + '</td>' +
+            '<td>' + E(t.user_id || "—") + '</td>' +
+            '<td>' + E(t.agent_id || "—") + '</td>' +
+            '<td class="mono small">' + E(t.model || "—") + '</td>' +
+            '<td class="mono small">' + (t.latency_ms != null ? t.latency_ms + " ms" : "—") + '</td>' +
+            '<td class="mono small">' + tokensOf(t) + '</td>' +
+            '<td>' + successPill(t.success) + '</td>' +
+            '<td>' + statusPill(t.status) + '</td>' +
+            '<td class="mono small muted" style="white-space:nowrap">' + E(LLA.fmtDate(t.created_at)) + '</td>' +
+            '</tr>' +
+            '<tr class="detail-row" id="trace-detail-' + i + '" style="display:none">' +
+              '<td colspan="10" class="detail-cell"><div id="trace-detail-body-' + i + '" class="muted small">加载中…</div></td>' +
+            '</tr>';
+        }).join("");
+      }
+      renderPager();
+    }).catch(function (e) {
+      body.innerHTML = '<tr><td colspan="10"><div class="empty">加载失败：' + E(e && e.message) + '</div></td></tr>';
+      setText("pageInfo", "—");
+    });
+  }
+
+  function renderPager() {
+    var totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+    if (state.page > totalPages - 1) state.page = totalPages - 1;
+    setText("pageInfo", "第 " + (state.page + 1) + " / " + totalPages + " 页（共 " + state.total + " 条）");
+    document.getElementById("prevBtn").disabled = state.page <= 0;
+    document.getElementById("nextBtn").disabled = (state.page + 1) * state.pageSize >= state.total;
+  }
+
+  /* ---------- 明细展开 ---------- */
+  function callHtml(c, idx) {
+    var isSummary = c.agent_id === "__trace_summary__";
+    var extra = "";
+    if (isSummary && c.detail_json) {
+      try {
+        var dj = JSON.parse(c.detail_json);
+        var s = dj.summary || {};
+        extra = '<div class="muted small mt-1">调用数 <b>' + E(s.call_count) + '</b>' +
+          ' · 总耗时 <b>' + E(s.total_latency_ms) + ' ms</b>' +
+          ' · 总成本 <b>¥' + E(s.total_cost) + '</b>' +
+          ' · 失败 <b class="' + (s.error_count ? "text-danger" : "text-success") + '">' + E(s.error_count) + '</b></div>';
+      } catch (err) { /* detail_json 非合法 JSON 时忽略 */ }
+    }
+    if (c.error) {
+      extra += '<div class="text-danger small mt-1" style="word-break:break-all">错误：' + E(c.error) + '</div>';
+    }
+    return '<div class="call-row">' +
+      '<div class="call-head">' +
+        '<span class="pill ' + (isSummary ? "amber" : "") + '">' + (isSummary ? "汇总" : "#" + (idx + 1)) + '</span>' +
+        '<b>' + E(c.agent_id || "—") + '</b>' +
+        '<span class="mono small muted">' + E(c.model || "—") + '</span>' +
+        '<span class="mono small">' + (c.latency_ms != null ? c.latency_ms + " ms" : "—") + '</span>' +
+        '<span class="mono small muted">' + tokensOf(c) + ' tokens</span>' +
+        successPill(c.success) +
+        '<span class="small muted" style="margin-left:auto;white-space:nowrap">' + E(LLA.fmtDate(c.created_at)) + '</span>' +
+      '</div>' + extra +
+    '</div>';
+  }
+
+  function toggleTrace(traceId, idx) {
+    var row = document.getElementById("trace-detail-" + idx);
+    if (!row) return;
+    var body = document.getElementById("trace-detail-body-" + idx);
+    var isOpen = row.style.display !== "none";
+    row.style.display = isOpen ? "none" : "";
+    if (isOpen) return;
+
+    if (state.loaded[traceId]) { body.innerHTML = state.loaded[traceId]; return; }
+    body.innerHTML = '加载中…';
+    LLA.get("/traces/" + encodeURIComponent(traceId)).then(function (data) {
+      var calls = (data && data.calls) || [];
+      var html = calls.length
+        ? '<div class="muted small mb-1">调用链明细（' + calls.length + ' 条记录）</div>' + calls.map(callHtml).join("")
+        : '<div class="empty">无明细</div>';
+      body.innerHTML = html;
+      state.loaded[traceId] = html;
+    }).catch(function (e) {
+      body.innerHTML = '<span class="text-danger">加载失败：' + E(e && e.message) + '</span>';
+    });
+  }
+
+  /* ---------- 事件 ---------- */
+  document.getElementById("refreshBtn").addEventListener("click", function () {
+    if (!LLA.isNoAuth()) loadTraces();
+    LLA.toast("已刷新");
+  });
+  document.getElementById("queryBtn").addEventListener("click", function () {
+    state.traceId = document.getElementById("traceIdFilter").value.trim();
+    state.page = 0;
+    loadTraces();
+  });
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    document.getElementById("traceIdFilter").value = "";
+    state.traceId = "";
+    state.page = 0;
+    loadTraces();
+  });
+  document.getElementById("traceIdFilter").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") document.getElementById("queryBtn").click();
+  });
+  document.getElementById("limitSel").addEventListener("change", function () {
+    state.pageSize = Number(this.value) || 50;
+    state.page = 0;
+    loadTraces();
+  });
+  document.getElementById("prevBtn").addEventListener("click", function () {
+    if (state.page > 0) { state.page--; loadTraces(); }
+  });
+  document.getElementById("nextBtn").addEventListener("click", function () {
+    state.page++; loadTraces();
+  });
+  document.getElementById("traceBody").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-trace]");
+    if (!btn) return;
+    toggleTrace(btn.getAttribute("data-trace"), btn.getAttribute("data-idx"));
+  });
+
+  /* ---------- 启动 ---------- */
+  LLA.boot({ nav: "traces" }).then(function (admin) {
+    if (!admin) {
+      placeholders();
+      document.getElementById("alertHost").innerHTML = LLA.noAuthBanner();
+      LLA.bindLoginButton();
+      return;
+    }
+    loadTraces();
+  }).catch(function () { placeholders(); });
+})();
+</script>
+</body>
+</html>
